@@ -80,7 +80,6 @@ open class AWSStream : ExtractorApi() {
             )
             val extractedPack = doc.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data().orEmpty()
 
-            // test
             JsUnpacker(extractedPack).unpack()?.let { unpacked ->
                 Regex(""""kind":\s*"captions"\s*,\s*"file":\s*"(https.*?\.jpg)""")
                     .find(unpacked)
@@ -89,7 +88,7 @@ open class AWSStream : ExtractorApi() {
                     ?.let { subtitleUrl ->
                         subtitleCallback.invoke(
                             newSubtitleFile(
-                                "English",
+                                subtitleUrl,
                                 subtitleUrl
                             )
                         )
