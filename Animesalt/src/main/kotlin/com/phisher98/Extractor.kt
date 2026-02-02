@@ -84,7 +84,7 @@ open class AWSStream : ExtractorApi() {
                 Regex(""""kind":\s*"captions"\s*,\s*"file":\s*"(https.*?\.jpg)""")
                     .find(unpacked)
                     ?.groupValues
-                    ?.get(0)
+                    ?.get(1)
                     ?.let { subtitleUrl ->
                         subtitleCallback.invoke(
                             newSubtitleFile(
