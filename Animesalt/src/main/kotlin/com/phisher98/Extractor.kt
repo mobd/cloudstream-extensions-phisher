@@ -85,6 +85,7 @@ open class AWSStream : ExtractorApi() {
                     .find(unpacked)
                     ?.groupValues
                     ?.get(1)
+                    ?.replace("\\/", "/")
                     ?.let { subtitleUrl ->
                         subtitleCallback.invoke(
                             newSubtitleFile(
