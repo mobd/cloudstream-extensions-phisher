@@ -70,7 +70,6 @@ class Yflix : MainAPI() {
 
 
     companion object {
-        private const val SIMKL = "https://api.simkl.com"
         private const val TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49"
         const val TMDBAPI = "https://orange-voice-abcf.phisher16.workers.dev"
 
@@ -115,7 +114,7 @@ class Yflix : MainAPI() {
 
     override suspend fun search(query: String, page: Int): SearchResponseList {
         val link = "$mainUrl/browser?keyword=$query&page=$page"
-        val res = app.get(link).documentLarge
+        val res = app.get(link).document
         return res.select("div.item").map { it.toSearchResult() }
             .toNewSearchResponseList()
     }
@@ -134,14 +133,14 @@ class Yflix : MainAPI() {
             "Cookie" to "usertype=guest; session=Mv2Y6x1b2I8SEw3fj0eNDfQYJM3CTpH9KjJc3ACK; cf_clearance=z9kEgtOSx3us4aluy5_5MfYEL6Ei8RJ3jCbcFTD2R1E-1745122952-1.2.1.1-UYjW2QUhPKUmojZE3XUE.gqHf3g5O6lvdl0qDCNPb5IjjavrpZIOpbE64osKxLbcblCAWynfNLv6bKSO75WzURG.FqDtfcu_si3MrCHECNtbMJC.k9cuhqDRcsz8hHPgpQE2fY8rR1z5Z4HfGmCw2MWMT6GelsZW_RQrTMHUYtIqjaEiAtxfcg.O4v_RGPwio_2J2V3rP16JbWO8wRh_dObNvWSMwMW.t44PhOZml_xWuh7DH.EIxLu3AzI91wggYU9rw6JJkaWY.UBbvWB0ThZRPTAJZy_9wlx2QFyh80AXU2c5BPHwEZPQhTQHBGQZZ0BGZkzoAB8pYI3f3eEEpBUW9fEbEJ9uoDKs7WOow8g"
         )
 
-        val res = app.get("${request.data}&page=$page", headers).documentLarge
+        val res = app.get("${request.data}&page=$page", headers).document
         val items = res.select("div.item").map { it.toSearchResult() }
         return newHomePageResponse(request.name, items)
     }
 
 
     override suspend fun load(url: String): LoadResponse {
-        val document = app.get(url).documentLarge
+        val document = app.get(url).document
         val keyword = url.substringAfter("/watch/").substringBefore(".")
         val poster = document.select("div.poster img").attr("src")
         val title = document.selectFirst("h1.title")?.text().orEmpty()
@@ -162,7 +161,7 @@ class Yflix : MainAPI() {
         val movieNode = epRes?.selectFirst("ul.episodes a")
         val allLinks = epRes?.select("ul.episodes a") ?: emptyList()
         val recommendations =
-            document.select("div.film-section.md div.item").map { it.toSearchResult() }
+            document.select("div.item > div.inner").map { it.toSearchResult() }
 
         if (allLinks.size == 1 && movieNode != null && movieNode.text().contains("Movie", ignoreCase = true)) {
             val movieId = movieNode.attr("eid")
@@ -172,7 +171,7 @@ class Yflix : MainAPI() {
             val imdbIdFromMovie = tmdbMovieId?.let { id ->
                 runCatching {
                     val url = "$TMDBAPI/movie/$id/external_ids?api_key=$TMDB_API_KEY"
-                    val jsonText = app.get(url).textLarge
+                    val jsonText = app.get(url).text
                     JSONObject(jsonText).optString("imdb_id").takeIf { it.isNotBlank() }
                 }.getOrNull()
             }
@@ -181,24 +180,16 @@ class Yflix : MainAPI() {
                 "https://live.metahub.space/logo/medium/$it/img"
             }
 
-            val simklIdMovie = imdbIdFromMovie?.let { imdb ->
-                runCatching {
-                    val simklJson =
-                        JSONObject(app.get("$SIMKL/movies/$imdb?client_id=${com.lagradost.cloudstream3.BuildConfig.SIMKL_CLIENT_ID}").text)
-                    simklJson.optJSONObject("ids")?.optInt("simkl")?.takeIf { it != 0 }
-                }.getOrNull()
-            }
-
             val movieCreditsJsonText = tmdbMovieId?.let { id ->
                 runCatching {
-                    app.get("$TMDBAPI/movie/$id/credits?api_key=$TMDB_API_KEY&language=en-US").textLarge
+                    app.get("$TMDBAPI/movie/$id/credits?api_key=$TMDB_API_KEY&language=en-US").text
                 }.getOrNull()
             }
 
             val bgurl = runCatching {
                 val json = app.get(
                     "$TMDBAPI/movie/$tmdbMovieId/images?api_key=$TMDB_API_KEY&language=en-US&include_image_language=en,null"
-                ).textLarge
+                ).text
 
                 val backdrops = JSONObject(json).optJSONArray("backdrops")
                 val bestBackdrop = backdrops?.optJSONObject(0)?.optString("file_path")?.takeIf { it.isNotBlank() }
@@ -227,15 +218,10 @@ class Yflix : MainAPI() {
 
         val episodes = ArrayList<Episode>()
         val tmdbShowId = runCatching { fetchtmdb(title,false) }.getOrNull()
-        if (title.contains("Special"))
-        {
-            Log.d("Phisher",tmdbShowId.toString())
-
-        }
         val imdbIdFromShow = tmdbShowId?.let { id ->
             runCatching {
                 val url = "$TMDBAPI/tv/$id/external_ids?api_key=$TMDB_API_KEY"
-                val jsonText = app.get(url).textLarge
+                val jsonText = app.get(url).text
                 JSONObject(jsonText).optString("imdb_id").takeIf { it.isNotBlank() }
             }.getOrNull()
         }
@@ -244,18 +230,10 @@ class Yflix : MainAPI() {
             "https://live.metahub.space/logo/medium/$it/img"
         }
 
-        val simklIdShow = imdbIdFromShow?.let { imdb ->
-            runCatching {
-                val simklJson =
-                    JSONObject(app.get("$SIMKL/tv/$imdb?client_id=${com.lagradost.cloudstream3.BuildConfig.SIMKL_CLIENT_ID}").text)
-                simklJson.optJSONObject("ids")?.optInt("simkl")?.takeIf { it != 0 }
-            }.getOrNull()
-        }
-
         // fetch show credits once (used for actors)
         val showCreditsJsonText = tmdbShowId?.let { id ->
             runCatching {
-                app.get("$TMDBAPI/tv/$id/credits?api_key=$TMDB_API_KEY&language=en-US").textLarge
+                app.get("$TMDBAPI/tv/$id/credits?api_key=$TMDB_API_KEY&language=en-US").text
             }.getOrNull()
         }
         val castList: List<ActorData> = parseCredits(showCreditsJsonText)
@@ -263,7 +241,7 @@ class Yflix : MainAPI() {
         val bgurl = runCatching {
             val json = app.get(
                 "$TMDBAPI/tv/$imdbIdFromShow/images?api_key=$TMDB_API_KEY&language=en-US&include_image_language=en,null"
-            ).textLarge
+            ).text
 
             val backdrops = JSONObject(json).optJSONArray("backdrops")
             val bestBackdrop = backdrops?.optJSONObject(0)?.optString("file_path")?.takeIf { it.isNotBlank() }
@@ -275,7 +253,7 @@ class Yflix : MainAPI() {
             val seasonNumber = seasonBlock.attr("data-season").toIntOrNull() ?: 1
             val tmdbSeasonJson = tmdbShowId?.let { id ->
                 runCatching {
-                    app.get("$TMDBAPI/tv/$id/season/$seasonNumber?api_key=$TMDB_API_KEY&language=en-US").textLarge
+                    app.get("$TMDBAPI/tv/$id/season/$seasonNumber?api_key=$TMDB_API_KEY&language=en-US").text
                 }.getOrNull()?.let { JSONObject(it) }
             }
 

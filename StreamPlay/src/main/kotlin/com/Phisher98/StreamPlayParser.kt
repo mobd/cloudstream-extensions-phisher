@@ -210,12 +210,11 @@ data class JikanResponse(
 //Hianime
 
 data class EpisodeServers(
-    val type: String,
-    val link: String,
-    val server: Long,
-    val sources: List<Any?>,
-    val tracks: List<Any?>,
-    val htmlGuide: String,
+    val type: String? = null,
+    val link: String? = null,
+    val server: Long? = null,
+    val sources: List<Any?>? = null,
+    val tracks: List<Any?>? = null
 )
 
 
@@ -437,6 +436,24 @@ data class KisskhKey(
 
 //SuperStream
 
+
+data class FebResponse(
+    val success: Boolean?,
+    val versions: List<Version>?
+)
+
+data class Version(
+    val name: String?,
+    val links: List<Link>?
+)
+
+data class Link(
+    val url: String?,
+    val quality: String?,
+    val name: String?,
+    val size: String?
+)
+
 data class ER(
     @JsonProperty("code") val code: Int? = null,
     @JsonProperty("msg") val msg: String? = null,
@@ -582,7 +599,6 @@ data class StremplaySource(
 )
 
 data class AnimeKaiResponse(
-    @JsonProperty("status") val status: Boolean,
     @JsonProperty("result") val result: String
 ) {
     fun getDocument(): Document {
@@ -661,6 +677,7 @@ data class Elevenmoviesjson(
 
 
 //Domains Parser
+
 data class DomainsParser(
     val moviesdrive: String,
     @JsonProperty("HDHUB4u")
@@ -680,15 +697,18 @@ data class DomainsParser(
     val luxmovies: String,
     val movierulzhd: String,
     val extramovies: String,
-    val dramadrip: String,
     val banglaplex: String,
     val toonstream: String,
     val telugumv: String,
     val filmycab: String,
     val tellyhd: String,
+    val filmyfiy: String,
     val hindmoviez: String,
-    @JsonProperty("hubcloud")
+    val tamilblasters: String,
     val hubcloud: String,
+    val movienestbd: String,
+    val movies4u: String,
+    val cinevood: String,
 )
 
 //OXXFile
@@ -870,6 +890,11 @@ data class CinemaOSReponseData(
     val salt: String,
 )
 
+data class CinemaOsAuthResponse(
+    val token: String,
+    val expiresIn: Long,
+)
+
 
 data class Vidlink(
     val sourceId: String,
@@ -936,6 +961,37 @@ data class NuvioStreamsStream(
 
 data class NuvioStreamsBehaviorHints(
     val notWebReady: Boolean,
+)
+
+data class webStreamr(
+    val streams: List<Stream>,
+)
+
+data class Stream(
+    val url: String,
+    val name: String,
+    val title: String,
+    val behaviorHints: BehaviorHints,
+)
+
+data class BehaviorHints(
+    val bingeGroup: String,
+    val notWebReady: Boolean,
+    val proxyHeaders: ProxyHeaders?,
+    val videoSize: Long?,
+)
+
+data class ProxyHeaders(
+    val request: RequestHeaders?
+)
+
+data class RequestHeaders(
+    @JsonProperty("Referer")
+    val referer: String?,
+    @JsonProperty("Origin")
+    val origin: String?,
+    @JsonProperty("User-Agent")
+    val userAgent: String?
 )
 
 data class YflixResponse(
@@ -1024,3 +1080,94 @@ data class FlixindiaResult(
 )
 
 
+//Vegamovies
+
+data class VegamoviesResponse(
+    val found: Int?,
+    val hits: List<VegamoviesHit>?
+)
+
+data class VegamoviesHit(
+    val document: VegamoviesDocument?
+)
+
+data class VegamoviesDocument(
+    val id: String?,
+    val imdb_id: String?,
+    val permalink: String?,
+    val post_title: String?,
+    val post_thumbnail: String?
+)
+
+//Dooflix
+
+data class Dooflix(
+    val id: Long,
+    val links: List<DooflixLink>,
+)
+
+data class DooflixLink(
+    val id: Long,
+    @JsonProperty("movie_id")
+    val movieId: Long,
+    val host: String,
+    val url: String,
+    val quality: String,
+    val size: String,
+    val order: Long,
+    @JsonProperty("created_at")
+    val createdAt: String,
+    @JsonProperty("updated_at")
+    val updatedAt: String,
+)
+
+//kuudere
+data class KuudereSearch(
+    val success: Boolean?,
+    val results: List<KuudereResult>?
+)
+
+data class KuudereResult(
+    val id: String?,
+    val title: String?,
+    val details: String?
+)
+
+data class KuudereWatch(
+    val episode_links: List<KuudereEpisodeLink>?
+)
+
+data class KuudereEpisodeLink(
+    val serverId: Int?,
+    val serverName: String?,
+    val episodeNumber: Int?,
+    val dataType: String?,
+    val dataLink: String?,
+)
+
+//Hexa
+
+data class HexaEn(
+    val status: Long,
+    val result: HexResult,
+)
+
+data class HexResult(
+    val token: String,
+    val expires: String,
+)
+
+data class HexaResponse(
+    val status: Int? = null,
+    val result: HexaResult? = null
+)
+
+data class HexaResult(
+    val sources: List<HexaSource>? = null,
+    val skipTime: Any? = null
+)
+
+data class HexaSource(
+    val server: String? = null,
+    val url: String? = null
+)

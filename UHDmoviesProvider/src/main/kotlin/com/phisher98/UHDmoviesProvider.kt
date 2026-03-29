@@ -39,17 +39,17 @@ class UHDmoviesProvider : MainAPI() { // all providers must be an instance of Ma
         "" to "Home",
         "movies/" to "Movies",
         "tv-series/" to "TV Series",
-        "tv-shows/" to "TV Shows",
-        "movies/dual-audio-movies/" to "Dual Audio Movies",
         "movies/collection-movies/" to "Hollywood",
-        "tv-shows/netflix/" to "Netflix",
         "web-series/" to "Web Series",
+        "tv-shows/netflix/" to "Netflix",
         "amazon-prime/" to "Amazon Prime",
+        "4k-hdr/" to "4K HDR",
+        "imax/" to "IMAX",
     )
 
     private suspend fun cfKiller(url: String): NiceResponse {
         var doc = app.get(url)
-        if (doc.documentLarge.select("title").text() == "Just a moment...") {
+        if (doc.document.select("title").text() == "Just a moment...") {
             doc = app.get(url, interceptor = CloudflareKiller())
         }
         return doc
@@ -60,9 +60,9 @@ class UHDmoviesProvider : MainAPI() { // all providers must be an instance of Ma
         request: MainPageRequest
     ): HomePageResponse {
         val document = if (page == 1) {
-            cfKiller("$mainUrl/${request.data}").documentLarge
+            cfKiller("$mainUrl/${request.data}").document
         } else {
-            cfKiller("$mainUrl/${request.data}" + "/page/$page/").documentLarge
+            cfKiller("$mainUrl/${request.data}" + "/page/$page/").document
         }
 
         val home = document.select("article.gridlove-post").mapNotNull {
@@ -92,7 +92,7 @@ class UHDmoviesProvider : MainAPI() { // all providers must be an instance of Ma
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val document = cfKiller("$mainUrl?s=$query ").documentLarge
+        val document = cfKiller("$mainUrl?s=$query ").document
 
         return document.select("article.gridlove-post").mapNotNull {
             it.toSearchResult()
@@ -105,22 +105,12 @@ class UHDmoviesProvider : MainAPI() { // all providers must be an instance of Ma
     )
 
     override suspend fun load(url: String): LoadResponse {
-        val doc = app.get(url).documentLarge
+        val doc = app.get(url).document
         val titleRaw = doc.select("div.gridlove-content div.entry-header h1.entry-title").text().trim().removePrefix("Download ")
         val titleRegex = Regex("(^.*\\)\\d*)")
         val title = titleRegex.find(titleRaw)?.groupValues?.get(1)?.trim()?.substringBefore("(")?.substringBefore("Season")?.substringBefore("S0") ?: titleRaw.substringBefore("(").substringBefore("Season").substringBefore("S0")
-        val img = doc.selectFirst("div.entry-content p img")
-
-        val poster = img?.attr("srcset")
-            ?.split(",")
-            ?.map { it.trim() }
-            ?.maxByOrNull {
-                it.substringAfterLast(" ")
-                    .removeSuffix("w")
-                    .toIntOrNull() ?: 0
-            }
-            ?.substringBefore(" ")
-            ?: img?.attr("src")
+        val img = doc.selectFirst("div.entry-content > p img")
+        val poster = img?.attr("src")
         val collectionposter = doc.select("meta[property=og:image]").attr("content")
         val yearRegex = Regex("(?<=\\()[\\d(\\]]+(?!=\\))")
         val year = yearRegex.find(titleRaw)?.value?.toIntOrNull()
@@ -139,14 +129,13 @@ class UHDmoviesProvider : MainAPI() { // all providers must be an instance of Ma
         val Description = meta?.get("description")?.asText() ?: ""
         val IMDBRating = meta?.get("imdbRating")?.asText()
         val trailer = doc.select("p iframe").attr("src")
-
+        val logoUrl = meta?.get("logo")?.asText()
 
         val simklId = ids.imdbId?.let {
             fetchSimklId(it, isSeries = type == TvType.TvSeries)
         }
 
         return if (type == TvType.TvSeries) {
-            val episodes = mutableListOf<Episode>()
             var pTags = doc.select("p:has(a:contains(Episode))")
             if (pTags.isEmpty())
             {
@@ -227,6 +216,7 @@ class UHDmoviesProvider : MainAPI() { // all providers must be an instance of Ma
 
             newTvSeriesLoadResponse(title, url, TvType.TvSeries, tvSeriesEpisodes) {
                 this.posterUrl = poster?.trim() ?: collectionposter
+                try { this.logoUrl = logoUrl } catch(_:Throwable){}
                 this.year = year
                 this.tags = tags
                 addTrailer(trailer)
@@ -250,9 +240,9 @@ class UHDmoviesProvider : MainAPI() { // all providers must be an instance of Ma
                     it.nextElementSibling()?.select("a.maxbutton-1")?.attr("href") ?: ""
                 )
             }
-            Log.d("Phisher","$poster $collectionposter $Background")
             newMovieLoadResponse(title, url, TvType.Movie, data) {
                 this.posterUrl = poster?.trim() ?: collectionposter
+                try { this.logoUrl = logoUrl } catch(_:Throwable){}
                 this.year = year
                 this.tags = tags
                 addTrailer(trailer)
@@ -323,13 +313,13 @@ suspend fun fetchIds(
         }
     }
 
-    val searchJson = JSONObject(app.get(searchUrl).textLarge)
+    val searchJson = JSONObject(app.get(searchUrl).text)
     val results = searchJson.optJSONArray("results")
     val tmdbId = results?.optJSONObject(0)?.optInt("id")
 
     val imdbId = tmdbId?.let { id ->
         val extUrl = "$TMDB_API/$type/$id/external_ids?api_key=$TMDB_API_KEY"
-        val extJson = JSONObject(app.get(extUrl).textLarge)
+        val extJson = JSONObject(app.get(extUrl).text)
         extJson.optString("imdb_id").takeIf { it.isNotBlank() }
     }
 
@@ -350,7 +340,7 @@ private suspend fun fetchMetaData(imdbId: String?, type: TvType): JsonNode? {
     if (imdbId.isNullOrBlank()) return null
 
     val metaType = if (type == TvType.TvSeries) "series" else "movie"
-    val url = "https://aiometadata.elfhosted.com/stremio/b7cb164b-074b-41d5-b458-b3a834e197bb/meta/$metaType/$imdbId.json"
+    val url = "https://v3-cinemeta.strem.io/meta/$metaType/$imdbId.json"
 
     return try {
         val resp = app.get(url).text

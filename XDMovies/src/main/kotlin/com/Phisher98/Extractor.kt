@@ -6,6 +6,7 @@ import com.lagradost.cloudstream3.Actor
 import com.lagradost.cloudstream3.ActorData
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
+import com.lagradost.cloudstream3.USER_AGENT
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
@@ -13,9 +14,21 @@ import com.lagradost.cloudstream3.utils.Qualities
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import com.phisher98.XDMovies.Companion.TMDBIMAGEBASEURL
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
 import org.json.JSONObject
 import java.net.URI
+import java.security.MessageDigest
 
 class Hubdrive : ExtractorApi() {
     override val name = "Hubdrive"
@@ -29,7 +42,7 @@ class Hubdrive : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val href=app.get(url, timeout = 2000).documentLarge.select(".btn.btn-primary.btn-user.btn-success1.m-1").attr("href")
+        val href=app.get(url, timeout = 2000).document.select(".btn.btn-primary.btn-user.btn-success1.m-1").attr("href")
         if (href.contains("hubcloud",ignoreCase = true)) HubCloud().getUrl(href,"HubDrive",subtitleCallback,callback)
         else loadExtractor(href,"HubDrive",subtitleCallback, callback)
     }
@@ -288,15 +301,11 @@ class XdMoviesExtractor : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val redirect = runCatching {
-            app.get(url, allowRedirects = false).headers["location"]
-        }.getOrNull()
-
-        redirect?.let {
-            loadExtractor(it, "HubCloud", subtitleCallback, callback)
-        }
+        val redirect = bypassXD(url) ?: return
+        loadExtractor(redirect, "HubCloud", subtitleCallback, callback)
     }
 }
+
 
 fun parseTmdbActors(jsonText: String?): List<ActorData> {
     if (jsonText.isNullOrBlank()) return emptyList()
@@ -333,53 +342,266 @@ suspend fun fetchTmdbLogoUrl(
     tmdbId: Int?,
     appLangCode: String?
 ): String? {
+
     if (tmdbId == null) return null
 
-    val appLang = appLangCode?.substringBefore("-")?.lowercase()
-    val url = if (type == TvType.Movie) {
+    val url = if (type == TvType.Movie)
         "$tmdbAPI/movie/$tmdbId/images?api_key=$apiKey"
-    } else {
+    else
         "$tmdbAPI/tv/$tmdbId/images?api_key=$apiKey"
-    }
 
     val json = runCatching { JSONObject(app.get(url).text) }.getOrNull() ?: return null
     val logos = json.optJSONArray("logos") ?: return null
     if (logos.length() == 0) return null
 
-    fun logoUrlAt(i: Int): String = "https://image.tmdb.org/t/p/w500${logos.getJSONObject(i).optString("file_path")}"
-    fun isSvg(i: Int): Boolean = logos.getJSONObject(i).optString("file_path").endsWith(".svg", ignoreCase = true)
+    val lang = appLangCode?.trim()?.lowercase()
 
-    if (!appLang.isNullOrBlank()) {
-        var svgFallback: String? = null
-        for (i in 0 until logos.length()) {
-            val logo = logos.optJSONObject(i) ?: continue
-            if (logo.optString("iso_639_1") == appLang) {
-                if (isSvg(i)) {
-                    if (svgFallback == null) svgFallback = logoUrlAt(i)
-                } else {
-                    return logoUrlAt(i)
+    fun path(o: JSONObject) = o.optString("file_path")
+    fun isSvg(o: JSONObject) = path(o).endsWith(".svg", true)
+    fun urlOf(o: JSONObject) = "https://image.tmdb.org/t/p/w500${path(o)}"
+
+    // Language match
+    var svgFallback: JSONObject? = null
+
+    for (i in 0 until logos.length()) {
+        val logo = logos.optJSONObject(i) ?: continue
+        val p = path(logo)
+        if (p.isBlank()) continue
+
+        val l = logo.optString("iso_639_1").trim().lowercase()
+        if (l == lang) {
+            if (!isSvg(logo)) return urlOf(logo)
+            if (svgFallback == null) svgFallback = logo
+        }
+    }
+    svgFallback?.let { return urlOf(it) }
+
+    // Highest voted fallback
+    var best: JSONObject? = null
+    var bestSvg: JSONObject? = null
+
+    fun voted(o: JSONObject) = o.optDouble("vote_average", 0.0) > 0 && o.optInt("vote_count", 0) > 0
+
+    fun better(a: JSONObject?, b: JSONObject): Boolean {
+        if (a == null) return true
+        val aAvg = a.optDouble("vote_average", 0.0)
+        val aCnt = a.optInt("vote_count", 0)
+        val bAvg = b.optDouble("vote_average", 0.0)
+        val bCnt = b.optInt("vote_count", 0)
+        return bAvg > aAvg || (bAvg == aAvg && bCnt > aCnt)
+    }
+
+    for (i in 0 until logos.length()) {
+        val logo = logos.optJSONObject(i) ?: continue
+        if (!voted(logo)) continue
+
+        if (isSvg(logo)) {
+            if (better(bestSvg, logo)) bestSvg = logo
+        } else {
+            if (better(best, logo)) best = logo
+        }
+    }
+
+    best?.let { return urlOf(it) }
+    bestSvg?.let { return urlOf(it) }
+
+    // No language match & no voted logos
+    return null
+}
+
+fun generateBrowserFingerprint(): String {
+    val components = listOf(
+        "1920x1080x24",
+        "Asia/Kolkata",
+        "en-US",
+        "Win32",
+        "8",
+        "8",
+        "canvas_stub_xdmovies",
+        "ANGLE (NVIDIA)",
+        "no_touch",
+        "3",
+        "true",
+        "unset"
+    )
+
+    val raw = components.joinToString("|||")
+    val digest = MessageDigest.getInstance("SHA-256")
+    val hash = digest.digest(raw.toByteArray(Charsets.UTF_8))
+    return hash.joinToString("") { "%02x".format(it) }.take(32)
+}
+
+private fun getBaseUrl(url: String): String {
+    return URI(url).let { "${it.scheme}://${it.host}" }
+}
+
+suspend fun bypassXD(url: String): String? {
+    // Follow initial redirect to get actual bypass URL
+    val redirect = app.get(url, allowRedirects = false)
+        .headers["location"] ?: return null
+
+    val baseUrl = getBaseUrl(redirect)
+    val code = redirect.substringAfterLast("/").takeIf { it.isNotEmpty() } ?: return null
+    val fingerprint = generateBrowserFingerprint()
+
+    val mouseData = mapOf(
+        "eventCount"    to 220,
+        "moveCount"     to 185,
+        "clickCount"    to 3,
+        "totalDistance" to 3800,
+        "hasMovement"   to true,
+        "duration"      to 27000
+    )
+
+    val baseHeaders = mapOf(
+        "User-Agent"      to USER_AGENT,
+        "Accept"          to "*/*",
+        "Origin"          to baseUrl,
+        "Referer"         to "$baseUrl/r/$code",
+        "sec-fetch-site"  to "same-origin",
+        "sec-fetch-mode"  to "cors",
+        "sec-fetch-dest"  to "empty"
+    )
+
+    // ── STEP 1: Create session ────────────────────────────────────────────────
+    val sessionJson = try {
+        JSONObject(
+            app.post(
+                "$baseUrl/api/session",
+                json = mapOf(
+                    "code"        to code,
+                    "fingerprint" to fingerprint,
+                    "mouseData"   to mouseData
+                ),
+                headers = baseHeaders
+            ).text
+        )
+    } catch (_: Exception) { return null }
+
+    val sessionId  = sessionJson.optString("sessionId").takeIf { it.isNotEmpty() } ?: return null
+
+    val cookieHeaders = baseHeaders + mapOf("Cookie" to "sid=$sessionId")
+
+    // ── STEP 2: Rebind (simulates step-2 page reload) ────────────────────────
+    val rebindJson = try {
+        JSONObject(
+            app.post(
+                "$baseUrl/api/session/rebind",
+                json = mapOf("fingerprint" to fingerprint),
+                headers = cookieHeaders
+            ).text
+        )
+    } catch (_: Exception) { return null }
+
+    val rebindToken = rebindJson.optString("token").takeIf { it.isNotEmpty() } ?: return null
+
+    // ── STEP 3: WebSocket heartbeats ─────────────────────────────────────────
+    // Server only advances visible-time counter when it receives
+    // "heartbeat" events over the Socket.IO WebSocket while
+    // visibility is "visible". A plain delay() does nothing.
+    val wsBaseUrl = baseUrl
+        .replace("https://", "wss://")
+        .replace("http://",  "ws://")
+
+    val visibleTimeDone = CompletableDeferred<Unit>()
+    val okHttpClient    = OkHttpClient()
+
+    val wsRequest = Request.Builder()
+        .url("$wsBaseUrl/socket.io/?EIO=4&transport=websocket")
+        .addHeader("Origin",     baseUrl)
+        .addHeader("Cookie",     "sid=$sessionId")
+        .addHeader("User-Agent", USER_AGENT)
+        .build()
+
+    var heartbeatJob: kotlinx.coroutines.Job? = null
+
+    val webSocket = okHttpClient.newWebSocket(wsRequest, object : WebSocketListener() {
+
+        override fun onOpen(webSocket: WebSocket, response: Response) {
+            // Socket.IO: connect to default namespace
+            webSocket.send("40")
+        }
+
+        override fun onMessage(webSocket: WebSocket, text: String) {
+            when {
+                // Socket.IO ping → reply with pong to keep connection alive
+                text == "2" -> webSocket.send("3")
+
+                // Namespace connected → bind session + mark visible + start heartbeats
+                text.startsWith("40") -> {
+                    webSocket.send("""42["bind","$rebindToken"]""")
+                    webSocket.send("""42["visibility","visible"]""")
+
+                    heartbeatJob = CoroutineScope(Dispatchers.IO).launch {
+                        var elapsed = 0
+                        while (elapsed < 28) {
+                            delay(1000)
+                            elapsed++
+
+                            webSocket.send("""42["heartbeat"]""")
+                            webSocket.send(
+                                """42["mouseActivity",${
+                                    JSONObject(
+                                        mouseData.toMutableMap().apply {
+                                            put("duration", elapsed * 1000)
+                                        }
+                                    )
+                                }]"""
+                            )
+                        }
+                        visibleTimeDone.complete(Unit)
+                    }
                 }
             }
         }
-        if (svgFallback != null) return svgFallback
-    }
 
-    var enSvgFallback: String? = null
-    for (i in 0 until logos.length()) {
-        val logo = logos.optJSONObject(i) ?: continue
-        if (logo.optString("iso_639_1") == "en") {
-            if (isSvg(i)) {
-                if (enSvgFallback == null) enSvgFallback = logoUrlAt(i)
-            } else {
-                return logoUrlAt(i)
-            }
+        override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+            visibleTimeDone.completeExceptionally(t)
         }
-    }
-    if (enSvgFallback != null) return enSvgFallback
+    })
 
-    for (i in 0 until logos.length()) {
-        if (!isSvg(i)) return logoUrlAt(i)
+    // Wait for 28 heartbeats (≈ 28 seconds of visible time)
+    try {
+        withTimeout(40_000) { visibleTimeDone.await() }
+    } catch (_: Exception) {
+        return null
+    } finally {
+        heartbeatJob?.cancel()
+        webSocket.close(1000, null)
+        okHttpClient.dispatcher.executorService.shutdown()
     }
 
-    return logoUrlAt(0)
+    // ── STEP 4: Complete session — retry until token returned ─────────────────
+    var finalToken: String? = null
+
+    repeat(5) { attempt ->
+        if (finalToken != null) return@repeat
+        try {
+            val json = JSONObject(
+                app.post(
+                    "$baseUrl/api/session/complete",
+                    json = mapOf(
+                        "fingerprint" to fingerprint,
+                        "mouseData"   to mouseData.toMutableMap().apply {
+                            put("duration", 28000 + attempt * 2000)
+                        },
+                        "honeypot"    to ""   // must be empty — bots fill this
+                    ),
+                    headers = cookieHeaders
+                ).text
+            )
+            json.optString("token").takeIf { it.isNotEmpty() }?.let { finalToken = it }
+        } catch (_: Exception) { }
+
+        if (finalToken == null) delay(2000)
+    }
+
+    val token = finalToken ?: return null
+
+    // ── STEP 5: Final redirect ────────────────────────────────────────────────
+    return app.get(
+        "$baseUrl/go/$sessionId?t=$token",
+        allowRedirects = false,
+        headers = cookieHeaders
+    ).headers["location"]
 }

@@ -47,7 +47,7 @@ import java.text.Normalizer
 open class Movierulzhd : MainAPI() {
 
     override var mainUrl: String = runBlocking {
-        MovierulzhdPlugin.getDomains()?.movierulzhd ?: "https://1movierulzhd.pro"
+        MovierulzhdPlugin.getDomains()?.movierulzhd ?: "https://123moviesfree9.cloud"
     }
     var directUrl = ""
     override var name = "Movierulzhd"
@@ -127,7 +127,7 @@ open class Movierulzhd : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val document = app.get("$mainUrl/search/$query").documentLarge
+        val document = app.get("$mainUrl/search/$query").document
         return document.select("div.result-item").map {
             val title =
                 it.selectFirst("div.title > a")!!.text().replace(Regex("\\(\\d{4}\\)"), "").trim()
@@ -141,7 +141,7 @@ open class Movierulzhd : MainAPI() {
 
     override suspend fun load(url: String): LoadResponse {
         val request = app.get(url)
-        val document = request.documentLarge
+        val document = request.document
         directUrl = getBaseUrl(request.url)
         val title =
             document.selectFirst("div.data > h1")?.text()?.trim().toString()
@@ -291,7 +291,7 @@ open class Movierulzhd : MainAPI() {
                 }
             } else {
                 try {
-                    val document = app.get(data).documentLarge
+                    val document = app.get(data).document
                     val items = document.select("ul#playeroptionsul > li").map {
                         Triple(
                             it.attr("data-post"),
@@ -318,8 +318,7 @@ open class Movierulzhd : MainAPI() {
                                 {
                                     VidStack().getUrl(source,"",subtitleCallback,callback)
                                 }
-                                else
-                                loadExtractor(source, subtitleCallback, callback)
+                                else loadExtractor(source, subtitleCallback, callback)
                             }
                         } catch (e: Exception) {
                             println("Error loading item: ${e.message}")

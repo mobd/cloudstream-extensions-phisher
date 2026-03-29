@@ -6,7 +6,6 @@ import com.lagradost.cloudstream3.extractors.Filesim
 import com.lagradost.cloudstream3.extractors.StreamSB
 import com.lagradost.cloudstream3.extractors.StreamWishExtractor
 import com.lagradost.cloudstream3.extractors.VidStack
-import com.lagradost.cloudstream3.extractors.Vidguardto
 import com.lagradost.cloudstream3.extractors.VidhideExtractor
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
@@ -47,7 +46,7 @@ open class Videzz : ExtractorApi() {
     override val requiresReferer = true
 
     override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink>? {
-            val mp4 = app.get(url,referer=mainUrl).documentLarge.select("#vplayer > #player source").attr("src")
+            val mp4 = app.get(url,referer=mainUrl).document.select("#vplayer > #player source").attr("src")
             return listOf(
                 newExtractorLink(
                     this.name,
@@ -78,10 +77,6 @@ class wishonly : StreamWishExtractor() {
 class FileMoonSx : Filesim() {
     override val mainUrl = "https://filemoon.sx"
     override val name = "FileMoonSx"
-}
-
-class Vidguardto2 : Vidguardto() {
-    override val mainUrl = "https://listeamed.net"
 }
 
 class CoflixUPN : VidStack() {

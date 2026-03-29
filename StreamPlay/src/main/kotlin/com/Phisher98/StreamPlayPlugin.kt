@@ -24,7 +24,6 @@ import androidx.core.content.edit
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.MainActivity
 import com.lagradost.cloudstream3.extractors.FilemoonV2
-import com.lagradost.cloudstream3.extractors.Vidguardto2
 import com.lagradost.cloudstream3.plugins.PluginData
 import com.lagradost.cloudstream3.plugins.PluginManager
 import org.json.JSONArray
@@ -40,7 +39,7 @@ class StreamPlayPlugin: Plugin() {
         val sharedPref = context.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
         val mainApis = listOf(
             StreamPlay(sharedPref),
-            StreamPlayAnime(), StreamPlayStremioCatelog("","StreamPlay StremioC",sharedPref)
+            StreamPlayAnime()
         )
         val savedSet = sharedPref.getStringSet("enabled_plugins_saved", null)
         val defaultEnabled = mainApis.map { it.name }.toSet()
@@ -72,7 +71,6 @@ class StreamPlayPlugin: Plugin() {
         registerExtractorAPI(MultimoviesSB())
         registerExtractorAPI(Yipsu())
         registerExtractorAPI(Mwish())
-        registerExtractorAPI(TravelR())
         registerExtractorAPI(Playm4u())
         registerExtractorAPI(FileMoon())
         registerExtractorAPI(VCloud())
@@ -141,7 +139,7 @@ class StreamPlayPlugin: Plugin() {
         registerExtractorAPI(Maxfinishseveral())
         registerExtractorAPI(Pahe())
         registerExtractorAPI(MegaUp())
-        registerExtractorAPI(oxxxfile())
+        registerExtractorAPI(OFile())
         registerExtractorAPI(Hblinks())
         registerExtractorAPI(VidStack())
         registerExtractorAPI(Videostr())
@@ -155,7 +153,6 @@ class StreamPlayPlugin: Plugin() {
         registerExtractorAPI(Akirabox())
         registerExtractorAPI(BuzzServer())
         registerExtractorAPI(FilemoonV2())
-        registerExtractorAPI(Vidguardto2())
         registerExtractorAPI(Hubstreamdad())
         registerExtractorAPI(StreamwishHG())
         registerExtractorAPI(PixelServer())
@@ -177,6 +174,16 @@ class StreamPlayPlugin: Plugin() {
         registerExtractorAPI(StreamwishTO())
         registerExtractorAPI(mixdrop21())
         registerExtractorAPI(m1xdrop())
+        registerExtractorAPI(PpzjYoutube())
+        registerExtractorAPI(Filesdl())
+        registerExtractorAPI(HDm2())
+        registerExtractorAPI(ZenCloudExtractor())
+        registerExtractorAPI(KumiUns())
+        registerExtractorAPI(Rapid())
+        registerExtractorAPI(Allanimeups())
+        registerExtractorAPI(Wootly())
+        registerExtractorAPI(Luluvdo())
+        registerExtractorAPI(Iqsmartgames())
 
         openSettings = { ctx ->
             val act = ctx as AppCompatActivity

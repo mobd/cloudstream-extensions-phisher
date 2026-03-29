@@ -20,6 +20,7 @@ import com.lagradost.cloudstream3.base64Decode
 import com.lagradost.cloudstream3.fixUrl
 import com.lagradost.cloudstream3.fixUrlNull
 import com.lagradost.cloudstream3.mainPageOf
+import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.newEpisode
 import com.lagradost.cloudstream3.newHomePageResponse
 import com.lagradost.cloudstream3.newMovieLoadResponse
@@ -29,12 +30,17 @@ import com.lagradost.cloudstream3.toNewSearchResponseList
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import org.jsoup.nodes.Element
+import java.util.concurrent.atomic.AtomicInteger
 
 class XDMovies : MainAPI() {
-    override var mainUrl = "https://new.xdmovies.wtf"
+    override var mainUrl = "https://top.xdmovies.wtf"
     override var name = "XD Movies"
     override val hasMainPage = true
     override var lang = "en"
@@ -80,15 +86,14 @@ class XDMovies : MainAPI() {
     override suspend fun quickSearch(query: String): List<SearchResponse>? = search(query,1)?.items
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val document = app.get("$mainUrl/${if (request.data.contains("Homepage")) "?" else "${request.data}&"}page=$page").documentLarge
+        val document = app.get("$mainUrl/${if (request.data.contains("Homepage")) "?" else "${request.data}&"}page=$page").document
         val home = document.select("div.container div.movie-grid a").mapNotNull { it.toSearchResult() }
 
         return newHomePageResponse(
             list = HomePageList(
                 name = request.name,
-                list = home,
-                isHorizontalImages = false
-            ),
+                list = home
+                ),
             hasNext = true
         )
     }
@@ -137,7 +142,7 @@ class XDMovies : MainAPI() {
 
 
     override suspend fun load(url: String): LoadResponse {
-        val document = app.get(url).documentLarge
+        val document = app.get(url, interceptor = CloudflareKiller()).document
         val infoDiv = document.selectFirst("div.info")
         val detailsWrapper = document.selectFirst("div.details-wrapper")
         val headerStyle = document.selectFirst("#movie-header")?.attr("style").orEmpty()
@@ -227,7 +232,7 @@ class XDMovies : MainAPI() {
                 val tmdbSeasonRes: TMDBRes? = runCatching {
                     val text = app.get(
                         "$TMDBAPI/tv/$tmdbId/season/$seasonNum?api_key=1865f43a0549ca50d341dd9ab8b29f49&language=en-US"
-                    ).textLarge
+                    ).text
                     gson.fromJson(text, TMDBRes::class.java)
                 }.getOrNull()
 
@@ -343,18 +348,25 @@ class XDMovies : MainAPI() {
             listOf(data.trim()).filter { it.isNotEmpty() }
         }
 
-        var success = false
+        if (links.isEmpty()) return false
 
-        links.forEach { link ->
-            runCatching {
-                loadExtractor(link, name, subtitleCallback, callback)
-                success = true
-            }.onFailure {
-                Log.e("XDMovies", "Failed to load link: $link")
-            }
+        val successCount = AtomicInteger(0)
+
+        // All links fire simultaneously — callbacks stream in as each one finishes
+        coroutineScope {
+            links.map { link ->
+                launch(Dispatchers.IO) {
+                    runCatching {
+                        loadExtractor(link, name, subtitleCallback, callback)
+                        successCount.incrementAndGet()
+                    }.onFailure {
+                        Log.e("XDMovies", "Failed to load link: $link")
+                    }
+                }
+            }.joinAll()
         }
 
-        return success
+        return successCount.get() > 0
     }
 
 }

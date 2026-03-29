@@ -5,10 +5,12 @@ import com.lagradost.api.Log
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.extractors.PixelDrain
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.INFER_TYPE
 import com.lagradost.cloudstream3.utils.Qualities
+import com.lagradost.cloudstream3.utils.fixUrl
 import com.lagradost.cloudstream3.utils.getQualityFromName
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
@@ -20,44 +22,90 @@ import java.nio.charset.StandardCharsets
 
 
 class Filesdl : ExtractorApi() {
-    override val name            = "Filesdl"
-    override val mainUrl         = "https://new6.filesdl.site"
+    override val name = "Filesdl"
+    override val mainUrl = "https://*.filesdl.site"
     override val requiresReferer = true
+
+    companion object {
+        private val QUALITY_REGEX = Regex("(\\d{3,4}p)", RegexOption.IGNORE_CASE)
+    }
 
     override suspend fun getUrl(
         url: String,
         referer: String?,
         subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit) {
-        val res = app.get(url).documentLarge
-        val titleText = res.select("div.title").text()
-        val qualityRegex = Regex("(\\d{3,4}p)", RegexOption.IGNORE_CASE)
-        val quality = qualityRegex.find(titleText)?.value ?: "Unknown"
-        res.select("div.container a").map {
-            val source = it.text()
-            val href = it.attr("href")
-            when {
+        callback: (ExtractorLink) -> Unit
+    ) {
+        val doc = app.get(url, referer = referer).document
+        val titleText = doc.selectFirst("div.title")?.text().orEmpty()
+        val quality = QUALITY_REGEX.find(titleText)?.value ?: "Unknown"
+        val inferredQuality = getQualityFromName(quality)
+        doc.select("div.container a").amap { element ->
+            val source = element.text().trim()
+            val href = element.attr("href").trim()
+            if (href.isBlank()) return@amap
 
-                source.contains("Hubcloud", ignoreCase = true) -> HubCloud().getUrl(href,"FilmyCab",subtitleCallback,callback)
+            runCatching {
+                when {
+                    source.contains("hubcloud", ignoreCase = true) -> {
+                        HubCloud().getUrl(href, name, subtitleCallback, callback)
+                    }
 
-                source.contains("GDFLIX", ignoreCase = true) -> GDFlix().getUrl(href,"",subtitleCallback,callback)
+                    source.contains("gdflix", ignoreCase = true) -> {
+                        GDFlix().getUrl(href, url, subtitleCallback, callback)
+                    }
 
-                source.contains("Gofile", ignoreCase = true) -> Gofile().getUrl(href,"",subtitleCallback,callback)
+                    source.contains("gofile", ignoreCase = true) -> {
+                        Gofile().getUrl(href, url, subtitleCallback, callback)
+                    }
 
-                source.contains("Direct Download", ignoreCase = true) || source.contains("Ultra FastDL", ignoreCase = true) -> {
-                    val response = app.get(href, allowRedirects = false)
-                    val redirectUrl = response.headers["location"] ?: href
-                    callback(
-                        newExtractorLink(
-                            "[FastDL]",
-                            "FilmyCab [FastDL]",
-                            redirectUrl,
-                            INFER_TYPE
+                    source.contains("Pixeldra", ignoreCase = true) -> {
+                        PixelDrain().getUrl(href, name, subtitleCallback, callback)
+                    }
+
+                    source.contains("fast cloud", ignoreCase = true) || source.contains("ultra fast download", ignoreCase = true) -> {
+                        callback(
+                            newExtractorLink(
+                                source = "[Fast Cloud]",
+                                name = "[Fast Cloud]",
+                                url = href,
+                                type = INFER_TYPE
+                            ) {
+                                this.quality = inferredQuality
+                            }
+                        )
+                    }
+
+                    source.contains("direct download", ignoreCase = true) || source.contains("ultra fastdl", ignoreCase = true) || source.contains("fast cloud-02", ignoreCase = true) -> {
+                        val res = app.get(href, allowRedirects = false, referer = url)
+                        val redirectUrl = res.headers["location"] ?: href
+                        val finalUrl = fixUrl(redirectUrl)
+
+                        if (finalUrl.contains(".mkv", true) ||
+                            finalUrl.contains(".mp4", true) ||
+                            finalUrl.contains(".m3u8", true)
                         ) {
-                            this.quality = getQualityFromName(quality)
+                            callback(
+                                newExtractorLink(
+                                    source = "[FastDL] [VLC]",
+                                    name = "Filesdl [FastDL] [VLC]",
+                                    url = finalUrl,
+                                    type = INFER_TYPE
+                                ) {
+                                    this.quality = inferredQuality
+                                }
+                            )
+                        } else {
+                            loadExtractor(finalUrl, url, subtitleCallback, callback)
                         }
-                    )
+                    }
+
+                    else -> {
+                        loadExtractor(href, url, subtitleCallback, callback)
+                    }
                 }
+            }.onFailure {
+                Log.e("Phisher", "Filesdl: Failed for source=$source href=$href — ${it.message}")
             }
         }
     }
@@ -324,7 +372,7 @@ class GDFlix : ExtractorApi() {
     ) {
         val latestUrl = getLatestUrl()
         val newUrl = url.replace(mainUrl, latestUrl)
-        val document = app.get(newUrl).documentLarge
+        val document = app.get(newUrl).document
         val fileName = document.select("ul > li.list-group-item:contains(Name)").text()
             .substringAfter("Name : ")
         val fileSize = document.select("ul > li.list-group-item:contains(Size)").text()
@@ -369,10 +417,10 @@ class GDFlix : ExtractorApi() {
 
                 text.contains("Index Links") -> {
                     try {
-                        app.get("$latestUrl$link").documentLarge
+                        app.get("$latestUrl$link").document
                             .select("a.btn.btn-outline-info").amap { btn ->
                                 val serverUrl = latestUrl + btn.attr("href")
-                                app.get(serverUrl).documentLarge
+                                app.get(serverUrl).document
                                     .select("div.mb-4 > a").amap { sourceAnchor ->
                                         val source = sourceAnchor.attr("href")
                                         callback.invoke(
@@ -400,7 +448,7 @@ class GDFlix : ExtractorApi() {
 
                             if (indexbotResponse.isSuccessful) {
                                 val cookiesSSID = indexbotResponse.cookies["PHPSESSID"]
-                                val indexbotDoc = indexbotResponse.documentLarge
+                                val indexbotDoc = indexbotResponse.document
 
                                 val token = Regex("""formData\.append\('token', '([a-f0-9]+)'\)""")
                                     .find(indexbotDoc.toString())?.groupValues?.get(1).orEmpty()
@@ -455,7 +503,7 @@ class GDFlix : ExtractorApi() {
                 }
                 text.contains("GoFile") -> {
                     try {
-                        app.get(link).documentLarge
+                        app.get(link).document
                             .select(".row .row a").amap { gofileAnchor ->
                                 val link = gofileAnchor.attr("href")
                                 if (link.contains("gofile")) {

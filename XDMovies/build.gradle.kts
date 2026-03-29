@@ -1,6 +1,5 @@
 // use an integer for version numbers
-version = 26
-
+version = 30
 
 cloudstream {
     // All of these properties are optional, you can safely remove them
@@ -29,6 +28,6 @@ cloudstream {
         "Cartoon",
         "AnimeMovie"
     )
-    iconUrl = "https://new.xdmovies.wtf/assets/logo1.png"
-    isCrossPlatform = true
+    iconUrl = "https://top.xdmovies.wtf/assets/logo1.png"
+    isCrossPlatform = false
 }
