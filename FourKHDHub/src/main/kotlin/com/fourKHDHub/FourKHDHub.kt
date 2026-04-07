@@ -36,8 +36,6 @@ class FourKHDHub : MainAPI() {
     override val mainPage = mainPageOf(
         "" to "Home",
         "category/movies" to "Latest Movies",
-        "category/hindi-movies" to "Hindi Movies",
-        "category/english-movies" to "English Movies",
         "category/series" to "Latest Episodes",
         "category/korean-series" to "Korean Series",
         "category/netflix" to "Netflix",
@@ -47,7 +45,9 @@ class FourKHDHub : MainAPI() {
         "category/Apple_TV" to "Apple TV+",
         "category/anime" to "Anime",
         "category/2160p-HDR" to "4K HDR",
-        "category/imdb" to "Top IMDb"
+        "category/imdb" to "Top IMDb",
+        "category/hindi-movies" to "Hindi Movies",
+        "category/english-movies" to "English Movies",
     )
 
 
@@ -56,11 +56,11 @@ class FourKHDHub : MainAPI() {
         request: MainPageRequest
     ): HomePageResponse {
         val url = "$mainUrl/${request.data}/page/$page"
-        val document = app.get(url).documentLarge
+        val document = app.get(url).document
         val results = document.select("div.card-grid a").mapNotNull {
                 it.toSearchResult()
         }
-        return newHomePageResponse(request.name, results)
+        return newHomePageResponse(request.name, results, true)
     }
 
     private fun Element.toSearchResult(): SearchResponse? {
@@ -77,7 +77,7 @@ class FourKHDHub : MainAPI() {
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
-        val document = app.get("$mainUrl/?s=$query").documentLarge
+        val document = app.get("$mainUrl/?s=$query").document
         val results = document.select("div.card-grid a").mapNotNull {
             it.toSearchResult()
         }
@@ -86,7 +86,7 @@ class FourKHDHub : MainAPI() {
 
     @RequiresApi(Build.VERSION_CODES.N)
     override suspend fun load(url: String): LoadResponse {
-        val document = app.get(url).documentLarge
+        val document = app.get(url).document
         val title = document.selectFirst("h1.page-title")?.text()?.substringBefore("(")?.trim().toString()
         val poster = document.select("meta[property=og:image]").attr("content")
         val tags = document.select("div.mt-2 span.badge").map { it.text() }
@@ -94,7 +94,6 @@ class FourKHDHub : MainAPI() {
         val tvType = if ("Movies" in tags) TvType.Movie else TvType.TvSeries
         val isMovie = tvType == TvType.Movie
         val tmdbId = runCatching { fetchtmdb(title,isMovie) }.getOrNull()
-
         val hrefs: List<String> = document.select("div.download-item a").eachAttr("href")
 
         val description = document.selectFirst("div.content-section p.mt-4")?.text()?.trim()
@@ -117,7 +116,7 @@ class FourKHDHub : MainAPI() {
             val tmdbJson = runCatching {
                 JSONObject(
                     app.get("$TMDBAPI/$type/$tmdbId?api_key=$TMDB_API_KEY&append_to_response=credits")
-                        .textLarge
+                        .text
                 )
             }.getOrNull()
 
@@ -161,7 +160,7 @@ class FourKHDHub : MainAPI() {
             val imdbIdFromSeries = tmdbId?.let { id ->
                 runCatching {
                     val url = "$TMDBAPI/tv/$id/external_ids?api_key=$TMDB_API_KEY"
-                    JSONObject(app.get(url).textLarge).optString("imdb_id").takeIf { it.isNotBlank() }
+                    JSONObject(app.get(url).text).optString("imdb_id").takeIf { it.isNotBlank() }
                 }.getOrNull()
             }
 
@@ -312,7 +311,7 @@ class FourKHDHub : MainAPI() {
             val imdbIdFromMovie = tmdbId?.let { id ->
                 runCatching {
                     val url = "$TMDBAPI/movie/$id/external_ids?api_key=$TMDB_API_KEY"
-                    JSONObject(app.get(url).textLarge).optString("imdb_id").takeIf { it.isNotBlank() }
+                    JSONObject(app.get(url).text).optString("imdb_id").takeIf { it.isNotBlank() }
                 }.getOrNull()
             }
 
@@ -329,7 +328,7 @@ class FourKHDHub : MainAPI() {
 
             val movieCreditsJsonText = tmdbId?.let { id ->
                 runCatching {
-                    app.get("${TMDBAPI}/movie/$id/credits?api_key=$TMDB_API_KEY&language=en-US").textLarge
+                    app.get("${TMDBAPI}/movie/$id/credits?api_key=$TMDB_API_KEY&language=en-US").text
                 }.getOrNull()
             }
             val movieCastList = parseCredits(movieCreditsJsonText)
@@ -351,9 +350,6 @@ class FourKHDHub : MainAPI() {
         }
     }
 
-    private val LINK_REGEX =
-        Regex("""https?://[^\s'",\]\[]+""", RegexOption.IGNORE_CASE)
-
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
@@ -361,71 +357,29 @@ class FourKHDHub : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
 
-        if (data.isBlank()) return false
+        val links = AppUtils.tryParseJson<List<String>>(data)?.asSequence()?.filter { it.isNotBlank() }?.distinct()?.toList()
+            ?: return false
 
-        val hubCloud = HubCloud()
-        val hubDrive = Hubdrive()
-        val hubCdn = Hubcdnn()
-
-        LINK_REGEX.findAll(data)
-            .map { it.value }
-            .forEach { rawLink ->
-
-                val resolvedLink = try {
-                    if ("id=" in rawLink.lowercase())
-                        getRedirectLinks(rawLink)
-                    else
-                        rawLink
-                } catch (e: Exception) {
-                    Log.e("Phisher", "Redirect failed for $rawLink — ${e.message}")
-                    return@forEach
-                }
-
-                if (resolvedLink.isBlank()) {
-                    Log.e("Extractor", "Resolved link is empty for $rawLink")
-                    return@forEach
-                }
-
-                val lower = resolvedLink.lowercase()
-
-                when {
-                    "hubcloud" in lower -> {
-                        hubCloud.getUrl(
-                            resolvedLink,
-                            name,
-                            subtitleCallback,
-                            callback
-                        )
-                    }
-
-                    "hubdrive" in lower -> {
-                        hubDrive.getUrl(
-                            resolvedLink,
-                            name,
-                            subtitleCallback,
-                            callback
-                        )
-                    }
-
-                    "hubcdn" in lower -> {
-                        hubCdn.getUrl(
-                            resolvedLink,
-                            name,
-                            subtitleCallback,
-                            callback
-                        )
-                    }
-
-                    else -> {
-                        loadExtractor(
-                            resolvedLink,
-                            name,
-                            subtitleCallback,
-                            callback
-                        )
-                    }
-                }
+        links.amap { raw ->
+            val resolved = try {
+                if (raw.contains("id=")) getRedirectLinks(raw) else raw
+            } catch (e: Exception) {
+                Log.e("Extractor", "Redirect failed: $raw — ${e.message}")
+                return@amap
             }
+
+            if (resolved.isBlank()) return@amap
+
+            try {
+                if (resolved.contains("hubcloud", ignoreCase = true)) {
+                    HubCloud().getUrl(resolved, name, subtitleCallback, callback)
+                } else {
+                    loadExtractor(resolved, name, subtitleCallback, callback)
+                }
+            } catch (e: Exception) {
+                Log.e("Extractor", "Extractor failed: $resolved — ${e.message}")
+            }
+        }
 
         return true
     }

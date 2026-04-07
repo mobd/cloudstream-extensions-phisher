@@ -55,7 +55,7 @@ class Kwik : ExtractorApi() {
     override suspend fun getUrl(url: String, referer: String?, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit) {
         val res = app.get(url,referer=url)
         val script =
-            res.documentLarge.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data()
+            res.document.selectFirst("script:containsData(function(p,a,c,k,e,d))")?.data()
         val unpacked = getAndUnpack(script ?: return)
         val m3u8 =Regex("source=\\s*'(.*?m3u8.*?)'").find(unpacked)?.groupValues?.getOrNull(1) ?:""
         callback.invoke(
@@ -127,7 +127,7 @@ class Pahe : ExtractorApi() {
             .build()
 
         val fContent = client.newCall(fContentRequest).execute()
-        val fContentString = fContent.body.string()
+        val fContentString = fContent.body.toString()
 
         val (fullString, key, v1, v2) = kwikParamsRegex.find(fContentString)!!.destructured
         val decrypted = decrypt(fullString, key, v1.toInt(), v2.toInt())

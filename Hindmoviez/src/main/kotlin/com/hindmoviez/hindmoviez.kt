@@ -17,6 +17,7 @@ import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.fixUrl
 import com.lagradost.cloudstream3.fixUrlNull
 import com.lagradost.cloudstream3.mainPageOf
+import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.newEpisode
 import com.lagradost.cloudstream3.newHomePageResponse
 import com.lagradost.cloudstream3.newMovieLoadResponse
@@ -46,7 +47,7 @@ class Hindmoviez : MainAPI() {
     )
     companion object
     {
-        private const val cinemeta_url = "https://aiometadata.elfhosted.com/stremio/b7cb164b-074b-41d5-b458-b3a834e197bb/meta"
+        private const val cinemeta_url = "https://v3-cinemeta.strem.io/meta"
     }
 
     override val mainPage = mainPageOf(
@@ -61,16 +62,31 @@ class Hindmoviez : MainAPI() {
     override suspend fun getMainPage(
         page: Int, request: MainPageRequest
     ): HomePageResponse {
-        val doc = if (page==1) app.get("$mainUrl/${request.data}", timeout = 5000L).document else app.get("$mainUrl/${request.data}/page/$page", timeout = 5000L).document
+        val url = if (page == 1) {
+            "$mainUrl/${request.data}"
+        } else {
+            "$mainUrl/${request.data}/page/$page"
+        }
 
+        var response = app.get(url, timeout = 5000L)
+        if (response.text.contains("Just a moment", ignoreCase = true)) {
+            // Retry using CloudflareKiller interceptor
+            response = app.get(
+                url,
+                timeout = 5000L,
+                interceptor = CloudflareKiller()
+            )
+        }
+
+        val doc = response.document
         val home = doc.select("article").mapNotNull { it.toSearchResult() }
         return newHomePageResponse(request.name, home, true)
     }
 
     private fun Element.toSearchResult(): SearchResponse {
-        val title = cleanTitle(this.selectFirst("div.entry-content img")?.attr("alt"))
+        val title = cleanTitle(this.selectFirst("h2.entry-title a")?.text())
         val href = fixUrl(this.select("a").attr("href"))
-        val posterUrl = fixUrlNull(this.select("div.entry-content img").let {
+        val posterUrl = fixUrlNull(this.select("header.entry-header img").let {
             img -> img.attr("data-src").takeIf { it.isNotBlank() }
             ?: img.attr("src") })
 
@@ -89,8 +105,21 @@ class Hindmoviez : MainAPI() {
 
 
     override suspend fun load(url: String): LoadResponse {
-        val doc = app.get(url, timeout = 10000).document
+        val response = app.get(url, timeout = 10000L)
 
+        val finalResponse = if (
+            response.text.contains("Just a moment", ignoreCase = true)
+        ) {
+            app.get(
+                url,
+                timeout = 10000L,
+                interceptor = CloudflareKiller()
+            )
+        } else {
+            response
+        }
+
+        val doc = finalResponse.document
         var name: String? = null
         var imdbRating: String? = null
         var imdbId: String? = null
@@ -144,7 +173,7 @@ class Hindmoviez : MainAPI() {
                         "https://api.themoviedb.org/3/find/$id" +
                                 "?api_key=1865f43a0549ca50d341dd9ab8b29f49" +
                                 "&external_source=imdb_id"
-                    ).textLarge
+                    ).text
                 )
 
                 obj.optJSONArray("movie_results")?.optJSONObject(0)?.optInt("id")?.takeIf { it != 0 }
@@ -158,7 +187,7 @@ class Hindmoviez : MainAPI() {
                 app.get(
                     "https://api.themoviedb.org/3/$tmdbmetatype/$it/credits" +
                             "?api_key=1865f43a0549ca50d341dd9ab8b29f49&language=en-US"
-                ).textLarge
+                ).text
             }.getOrNull()
         }
         val castList = parseCredits(creditsJson)
@@ -240,7 +269,7 @@ class Hindmoviez : MainAPI() {
                     ?.firstOrNull { it.season == seasonNumber && it.episode == episodeNumber }
 
                 newEpisode(urls.toJson()) {
-                    this.name = metaEpisode?.title
+                    this.name = metaEpisode?.name
                     this.season = seasonNumber
                     this.episode = episodeNumber
                     this.posterUrl = metaEpisode?.thumbnail
@@ -292,47 +321,56 @@ class Hindmoviez : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val links: List<String> = tryParseJson<List<String>>(data) ?: emptyList()
-        links.amap { pageUrl ->
-            val pageDoc = app.get(pageUrl).document
-            pageDoc.select("a.btn").forEach { btn ->
-                val btnUrl = btn.absUrl("href")
-                if (btnUrl.isBlank()) return@forEach
-                val name = pageDoc.selectFirst("div.container p:contains(Name:)")
-                    ?.text()
-                    ?.substringAfter("Name:")
-                    ?.trim()
-                    .orEmpty()
+        val links: List<String> = tryParseJson<List<String>>(data) ?: return true
 
+        val allRequests = links.flatMap { pageUrl ->
+            val pageDoc = app.get(pageUrl, timeout = 10000L).document
 
-                val extractedSpecs = buildExtractedTitle(extractSpecs(name))
+            val name: String = pageDoc.selectFirst("div.container p:contains(Name:)")
+                ?.text()
+                ?.substringAfter("Name:")
+                ?.trim()
+                .orEmpty()
 
-                val fileSize = pageDoc.selectFirst("div.container p:contains(Size:)")
-                    ?.text()
-                    ?.substringAfter("Size:")
-                    ?.trim()
-                    .orEmpty()
+            if (name.isBlank()) return@flatMap emptyList()
 
-                val doc = app.get(btnUrl).document
-                val quality = getIndexQuality(doc.select("div.container h2").text())
+            val extractedSpecs: String = buildExtractedTitle(extractSpecs(name))
+            val fileSize: String = pageDoc.selectFirst("div.container p:contains(Size:)")
+                ?.text()
+                ?.substringAfter("Size:")
+                ?.trim()
+                .orEmpty()
+
+            pageDoc.select("a.btn")
+                .mapNotNull { it.absUrl("href").takeIf { url -> url.isNotBlank() } }
+                .map { btnUrl ->
+                    Triple(btnUrl, extractedSpecs, fileSize)
+                }
+        }
+
+        allRequests.amap { (btnUrl, extractedSpecs, fileSize) ->
+            try {
+                val doc = app.get(btnUrl, timeout = 10000L).document
+                val quality: Int = getIndexQuality(
+                    doc.selectFirst("div.container h2")?.text() ?: ""
+                )
 
                 doc.select("a.button").forEach { link ->
-                    val servername = link.text()
                     val href = link.absUrl("href")
                     if (href.isNotBlank()) {
                         callback.invoke(
                             newExtractorLink(
-                                servername,
-                                "$name [HCloud] $extractedSpecs[$fileSize]",
+                                link.text(),
+                                "[HCloud] $extractedSpecs[$fileSize]",
                                 href
-                            )
-                            {
+                            ) {
                                 this.referer = btnUrl
                                 this.quality = quality
                             }
                         )
                     }
                 }
+            } catch (_: Exception) {
             }
         }
 

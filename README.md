@@ -10,8 +10,6 @@ If you find this project helpful, consider supporting its development!
 
 <a href="https://buymeacoffee.com/phisher98" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
 
-[![Support me on Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20Me-red?logo=ko-fi)](https://ko-fi.com/phisher98)
-
 ## 🌐 Plugin Servers
 
 ### 🔹 Phisher Cloudstream Plugin Server
@@ -48,13 +46,14 @@ This guide will show you how to use a **private GitHub project** and a **persona
 
 Want to learn how to add and manage Stremio addons more effectively?
 
+📘 **StremioX / StremioC – Written Guide**  
+Detailed explanation of StremioX (stream addons) and StremioC (catalogue addons), including usage and limitations.  
+✨ **StremioC: Wrap stream & catalogue in [AIOStreams](https://github.com/Viren070/AIOStreams) addon for dual support.**  
+[Open guide →](https://github.com/phisher98/cloudstream-extensions-phisher/blob/master/docs/README-StremioX.md)
+
 📘 **Stremio Addon – Written Guide**  
 Step-by-step instructions for adding, managing, and using Stremio addon links in Cloudstream.  
 [Open guide →](https://github.com/phisher98/cloudstream-extensions-phisher/blob/master/docs/README-StremioAddon.md)
-
-📘 **StremioX / StremioC – Written Guide**  
-Detailed explanation of StremioX (stream addons) and StremioC (catalogue addons), including usage and limitations.  
-[Open guide →](https://github.com/phisher98/cloudstream-extensions-phisher/blob/master/docs/README-StremioX.md)
 
 ---
 

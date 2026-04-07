@@ -17,6 +17,7 @@ import com.lagradost.cloudstream3.SearchResponseList
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.addDate
+import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.mainPageOf
 import com.lagradost.cloudstream3.newEpisode
@@ -25,6 +26,7 @@ import com.lagradost.cloudstream3.newMovieLoadResponse
 import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.toNewSearchResponseList
+import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.loadExtractor
 import kotlinx.coroutines.runBlocking
@@ -73,7 +75,7 @@ class HDhub4uProvider : MainAPI() {
             cacheTime = 60,
             headers = headers,
             allowRedirects = true
-        ).documentLarge
+        ).document
         val home = doc.select(".recent-movies > li.thumb").mapNotNull { toResult(it) }
         return newHomePageResponse(request.name, home, true)
     }
@@ -132,7 +134,7 @@ class HDhub4uProvider : MainAPI() {
 
 
     override suspend fun load(url: String): LoadResponse {
-        val doc = app.get(url, cacheTime = 60, headers = headers).documentLarge
+        val doc = app.get(url, cacheTime = 60, headers = headers).document
         var title = doc.select(
             ".page-body h2[data-ved=\"2ahUKEwjL0NrBk4vnAhWlH7cAHRCeAlwQ3B0oATAfegQIFBAM\"], " +
                     "h2[data-ved=\"2ahUKEwiP0pGdlermAhUFYVAKHV8tAmgQ3B0oATAZegQIDhAM\"]"
@@ -372,7 +374,7 @@ class HDhub4uProvider : MainAPI() {
                     baseLinks.forEach { url ->
                         try {
                             val resolvedUrl = getRedirectLinks(url.trim())
-                            val episodeDoc = app.get(resolvedUrl).documentLarge
+                            val episodeDoc = app.get(resolvedUrl).document
 
                             episodeDoc.select("h5 a").forEach { linkElement ->
                                 val text = linkElement.text()
@@ -447,23 +449,40 @@ class HDhub4uProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val linksList: List<String> = data.removePrefix("[").removeSuffix("]").replace("\"", "").split(',', ' ').map { it.trim() }.filter { it.isNotBlank() }
-        for (link in linksList) {
+        val linksList = tryParseJson<List<String>>(data)?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
+        linksList.amap { link ->
             try {
                 val finalLink = if ("?id=" in link) {
                     getRedirectLinks(link)
                 } else {
                     link
                 }
-                if (finalLink.contains("Hubdrive",ignoreCase = true))
-                {
-                    Hubdrive().getUrl(finalLink,"", subtitleCallback,callback)
-                } else loadExtractor(finalLink, subtitleCallback, callback)
+
+                when {
+                    finalLink.contains("Hubdrive", ignoreCase = true) -> {
+                        Hubdrive().getUrl(
+                            finalLink,
+                            referer = "",
+                            subtitleCallback = subtitleCallback,
+                            callback = callback
+                        )
+                    }
+
+                    else -> {
+                        loadExtractor(
+                            finalLink,
+                            subtitleCallback,
+                            callback
+                        )
+                    }
+                }
+
             } catch (e: Exception) {
                 Log.e("Phisher", "Failed to process $link: ${e.message}")
             }
         }
-        return true
+
+        return linksList.isNotEmpty()
     }
 
 

@@ -19,7 +19,6 @@ import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
-import com.lagradost.cloudstream3.fixTitle
 import com.lagradost.cloudstream3.imdbUrlToIdNullable
 import com.lagradost.cloudstream3.newEpisode
 import com.lagradost.cloudstream3.newHomePageResponse
@@ -45,10 +44,6 @@ class StreamPlayStremioCatelog(
     override val supportedTypes = setOf(TvType.Others,TvType.Movie,
         TvType.TvSeries)
     override val hasMainPage = true
-
-    companion object {
-        private const val cinemataUrl = "https://aiometadata.elfhosted.com/stremio/b7cb164b-074b-41d5-b458-b3a834e197bb"
-    }
 
     override suspend fun getMainPage(
         page: Int,
@@ -198,21 +193,6 @@ class StreamPlayStremioCatelog(
         )
     }
 
-
-
-
-
-
-    // check if id is imdb/tmdb cause stremio addons like torrentio works base on imdbId
-    private fun isImdborTmdb(url: String?): Boolean {
-        return imdbUrlToIdNullable(url) != null || url?.startsWith("tmdb:") == true
-    }
-
-    private fun isImdb(url: String?): Boolean {
-        return imdbUrlToIdNullable(url) != null
-    }
-
-
     private data class Manifest(val catalogs: List<Catalog>)
     private data class Catalog(
         var name: String?,
@@ -333,8 +313,7 @@ class StreamPlayStremioCatelog(
                     year = yearNum?.toIntOrNull()
                     tags = genre ?: genres
                     addActors(cast)
-                    addTrailer(trailersSources.map { "https://www.youtube.com/watch?v=${it.source}" }
-                        ?.randomOrNull())
+                    addTrailer(trailersSources.map { "https://www.youtube.com/watch?v=${it.source}" }.randomOrNull())
                     addImdbId(imdbId)
                 }
             }
@@ -422,7 +401,7 @@ class StreamPlayStremioCatelog(
         val mediaType = if (type == "series") "series" else "movie"
 
         val res = app.get(
-            "https://aiometadata.elfhosted.com/stremio/b7cb164b-074b-41d5-b458-b3a834e197bb/meta/$mediaType/$imdbId.json"
+            "https://v3-cinemeta.strem.io/meta/$mediaType/$imdbId.json"
         ).parsedSafe<CinemetaResponse>()
 
         return res?.meta?.let {

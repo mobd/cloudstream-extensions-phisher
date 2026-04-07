@@ -17,7 +17,6 @@ import kotlinx.coroutines.sync.withPermit
 
 class AnimePahe : MainAPI() {
     companion object {
-        const val MAIN_URL = "https://animepahe.si"
         val headers = mapOf("Cookie" to "__ddg2_=1234567890")
         private const val Proxy="https://animepaheproxy.phisheranimepahe.workers.dev/?url="
         //var cookies: Map<String, String> = mapOf()
@@ -28,7 +27,7 @@ class AnimePahe : MainAPI() {
         }
     }
 
-    override var mainUrl = MAIN_URL
+    override var mainUrl = AnimePaheProviderPlugin.currentAnimepaheServer
     override var name = "AnimePahe"
     override val hasQuickSearch = false
     override val hasMainPage = true
@@ -331,7 +330,7 @@ class AnimePahe : MainAPI() {
     ): Boolean {
         val parsed = parseJson<LinkLoadData>(data)
         val episodeUrl = parsed.getUrl() ?: ""
-        val document= app.get(episodeUrl, headers= headers).documentLarge
+        val document= app.get(episodeUrl, headers= headers).document
         document.select("#resolutionMenu button")
             .map {
                 val dubText = it.select("span").text().lowercase()

@@ -51,7 +51,10 @@ import com.phisher98.StreamPlayExtractor.invokeAnimepahe
 import com.phisher98.StreamPlayExtractor.invokeAnimetosho
 import com.phisher98.StreamPlayExtractor.invokeAnizone
 import com.phisher98.StreamPlayExtractor.invokeHianime
+import com.phisher98.StreamPlayExtractor.invokeKaido
 import com.phisher98.StreamPlayExtractor.invokeKickAssAnime
+import com.phisher98.StreamPlayExtractor.invokeSudatchi
+import com.phisher98.StreamPlayExtractor.invokekuudere
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.Calendar
@@ -299,6 +302,7 @@ class StreamPlayAnime : MainAPI() {
         val jpTitle = mediaData.jpTitle
         val anititle = mediaData.title
         val anidbEid = mediaData.anidbEid
+        val aniid = mediaData.aniId
         val season= jpTitle?.let { extractSeason(it) }
         val year=mediaData.year
         val malsync = app.get("$malsyncAPI/mal/anime/$malId").parsedSafe<MALSyncResponses>()?.sites
@@ -314,6 +318,7 @@ class StreamPlayAnime : MainAPI() {
 
         runAllAsync(
             { invokeHianime(zoro?.keys?.toList(), episode, subtitleCallback, callback, dubStatus) },
+            { invokeKaido(zoro?.keys?.toList(), episode, subtitleCallback, callback, dubStatus) },
             {
                 malsync?.animepahe?.values?.firstNotNullOfOrNull { it["url"] }?.let {
                     invokeAnimepahe(it, episode, subtitleCallback, callback, dubStatus)
@@ -324,9 +329,7 @@ class StreamPlayAnime : MainAPI() {
             { invokeAnichi(jpTitle, anititle, year, episode, subtitleCallback, callback, dubStatus) },
             { invokeKickAssAnime(zorotitle,kaasSlug, episode, subtitleCallback, callback, dubStatus) },
             { invokeAnimeKai(jpTitle, zorotitle, episode, subtitleCallback, callback, dubStatus) },
-
             {
-
                 malId?.let {
                     invokeAnimetosho(
                         it,
@@ -342,7 +345,20 @@ class StreamPlayAnime : MainAPI() {
                 if (aniXL != null) {
                     invokeAniXL(aniXL, episode, callback, dubStatus)
                 }
-            }
+            },
+            {
+                invokeSudatchi(aniid, episode, subtitleCallback, callback)
+            },
+            {
+                invokekuudere(
+                    anititle ?: zorotitle,
+                    season,
+                    episode,
+                    subtitleCallback,
+                    callback,
+                    dubStatus
+                )
+            },
         )
         return true
     }

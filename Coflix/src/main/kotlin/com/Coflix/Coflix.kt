@@ -13,7 +13,7 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 
 class Coflix : MainAPI() {
-    override var mainUrl              = "https://coflix.si"
+    override var mainUrl              = "https://coflix.wales"
     override var name                 = "Coflix"
     override val hasMainPage          = true
     override var lang                 = "fr"
@@ -90,7 +90,7 @@ class Coflix : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val document = app.get(url).documentLarge
+        val document = app.get(url).document
         val title       = document.selectFirst("meta[property=og:title]")?.attr("content")?.substringBeforeLast("En") ?: "Unknown"
         var poster = fixUrl(document.select("img.TPostBg").attr("src"))
         if (poster.isEmpty())
@@ -153,8 +153,8 @@ class Coflix : MainAPI() {
 
     override suspend fun loadLinks(data: String, isCasting: Boolean, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
         val referer = getBaseUrl(mainUrl)
-        val iframe = app.get(data).documentLarge.select("div.embed iframe").attr("src")
-        val doc= app.get(iframe,referer = referer ).documentLarge
+        val iframe = app.get(data).document.select("div.embed iframe").attr("src")
+        val doc= app.get(iframe,referer = referer ).document
         val lis = doc.select("li[onclick]")
         lis.amap { li ->
             val onclick = li.attr("onclick")

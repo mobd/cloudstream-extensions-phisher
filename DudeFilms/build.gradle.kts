@@ -1,5 +1,5 @@
 // use an integer for version numbers
-version = 2
+version = 4
 
 
 cloudstream {
@@ -20,7 +20,8 @@ cloudstream {
         "TvSeries",
     )
     language = "hi"
-    iconUrl = "https://dudefilms.media/wp-content/uploads/2020/06/cropped-cropped-DudeFilms-LOGO-v02-1.png"
+    iconUrl= "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/Icons/dudefilms.png"
+
 
     isCrossPlatform = false
 }

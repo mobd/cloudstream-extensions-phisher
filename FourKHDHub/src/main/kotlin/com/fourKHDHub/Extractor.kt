@@ -2,6 +2,7 @@ package com.fourKHDHub
 
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.SubtitleFile
+import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.base64Decode
 import com.lagradost.cloudstream3.extractors.PixelDrain
@@ -43,19 +44,19 @@ open class Hblinks : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         val elements = runCatching {
-            app.get(url).documentLarge
+            app.get(url).document
                 .select("h3 a, h5 a, div.entry-content p a")
         }.getOrElse {
             Log.e(name, "Failed to load page: ${it.message}")
             return
         }
 
-        elements.forEach { el ->
+        elements.amap { el ->
             val href = el.absUrl("href")
                 .ifBlank { el.attr("href") }
                 .trim()
 
-            if (href.isEmpty()) return@forEach
+            if (href.isEmpty()) return@amap
 
             val lower = href.lowercase()
 
@@ -91,7 +92,7 @@ class Hubcdnn : ExtractorApi() {
         callback: (ExtractorLink) -> Unit
     ) {
         val html = runCatching {
-            app.get(url).documentLarge.toString()
+            app.get(url).document.toString()
         }.getOrElse {
             Log.e(name, "Failed to load page: ${it.message}")
             return
@@ -145,7 +146,7 @@ class Hubdrive : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val href=app.get(url, timeout = 5000L).documentLarge.select(".btn.btn-primary.btn-user.btn-success1.m-1").attr("href")
+        val href=app.get(url, timeout = 5000L).document.select(".btn.btn-primary.btn-user.btn-success1.m-1").attr("href")
         if (href.contains("hubcloud",ignoreCase = true)) HubCloud().getUrl(href,"HubDrive",subtitleCallback,callback)
         else loadExtractor(href,"HubDrive",subtitleCallback, callback)
     }
@@ -297,6 +298,16 @@ class HubCloud : ExtractorApi() {
                     )
                 }
 
+                "pdl Server" in label -> {
+                    callback(
+                        newExtractorLink(
+                            "$ref [PDL Server]",
+                            "$ref [PDL Server] $labelExtras",
+                            link
+                        ) { this.quality = quality }
+                    )
+                }
+
                 /*
                 "10gbps" in label -> {
                     var current = link
@@ -404,7 +415,7 @@ class HUBCDN : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        val doc = app.get(url).documentLarge
+        val doc = app.get(url).document
         val scriptText = doc.selectFirst("script:containsData(var reurl)")?.data()
 
         val encodedUrl = Regex("reurl\\s*=\\s*\"([^\"]+)\"")

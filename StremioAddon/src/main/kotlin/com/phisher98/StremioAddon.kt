@@ -6,7 +6,6 @@ import android.webkit.URLUtil
 import androidx.annotation.RequiresApi
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.api.Log
-import java.time.LocalDate
 import com.lagradost.cloudstream3.Actor
 import com.lagradost.cloudstream3.ActorData
 import com.lagradost.cloudstream3.ErrorLoadingException
@@ -43,6 +42,7 @@ import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import com.phisher98.SubsExtractors.invokeOpenSubs
 import com.phisher98.SubsExtractors.invokeWatchsomuch
+import java.util.Calendar
 
 class StremioAddon(private val sharedPref: SharedPreferences) : TmdbProvider() {
     override var mainUrl = "https://example.com"
@@ -74,7 +74,7 @@ class StremioAddon(private val sharedPref: SharedPreferences) : TmdbProvider() {
     @RequiresApi(Build.VERSION_CODES.O)
     override val mainPage = run {
         val categories = mutableListOf<Pair<String, String>>()
-        val currentMonth = LocalDate.now().monthValue
+        val currentMonth = Calendar.getInstance().get(Calendar.MONTH) + 1
 
         categories += "$tmdbAPI/trending/all/day?api_key=$apiKey&region=US" to "Trending"
         categories += "$tmdbAPI/movie/popular?api_key=$apiKey&region=US" to "Popular Movies"
@@ -179,6 +179,14 @@ class StremioAddon(private val sharedPref: SharedPreferences) : TmdbProvider() {
 
         val trailer = res.videos?.results?.map { "https://www.youtube.com/watch?v=${it.key}" }?.randomOrNull()
 
+        val logoUrl = fetchTmdbLogoUrl(
+            tmdbAPI = "https://api.themoviedb.org/3",
+            apiKey = "98ae14df2b8d8f8f8136499daf79f0e0",
+            type = type,
+            tmdbId = res.id,
+            appLangCode = "en"
+        )
+
         return if (type == TvType.TvSeries) {
             val episodes = res.seasons?.mapNotNull { season ->
                 app.get("$tmdbAPI/${data.type}/${data.id}/season/${season.seasonNumber}?api_key=$apiKey")
@@ -205,6 +213,7 @@ class StremioAddon(private val sharedPref: SharedPreferences) : TmdbProvider() {
             ) {
                 this.posterUrl = poster
                 this.backgroundPosterUrl = bgPoster
+                try { this.logoUrl = logoUrl } catch(_:Throwable){}
                 this.year = year
                 this.plot = res.overview
                 this.tags =  keywords.takeIf { !it.isNullOrEmpty() } ?: genres
@@ -224,6 +233,7 @@ class StremioAddon(private val sharedPref: SharedPreferences) : TmdbProvider() {
                 LoadData(res.external_ids?.imdb_id).toJson()
             ) {
                 this.posterUrl = poster
+                try { this.logoUrl = logoUrl } catch(_:Throwable){}
                 this.comingSoon = isUpcoming(releaseDate)
                 this.backgroundPosterUrl = bgPoster
                 this.year = year
@@ -341,7 +351,7 @@ class StremioAddon(private val sharedPref: SharedPreferences) : TmdbProvider() {
                         INFER_TYPE,
                     )
                     {
-                        this.quality=getQuality(listOf(description,title,name))
+                        this.quality=getQuality(listOf(name,title,description))
                         this.headers=behaviorHints?.proxyHeaders?.request ?: behaviorHints?.headers ?: mapOf()
                     }
                 )
