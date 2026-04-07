@@ -1510,7 +1510,7 @@ class Pahe : ExtractorApi() {
             .build()
 
         val fContent = client.newCall(fContentRequest).execute()
-        val fContentString = fContent.body.string()
+        val fContentString = fContent.body.toString()
 
         val (fullString, key, v1, v2) = kwikParamsRegex.find(fContentString)!!.destructured
         val decrypted = decrypt(fullString, key, v1.toInt(), v2.toInt())
@@ -1884,8 +1884,12 @@ open class GDFlix : ExtractorApi() {
             .substringAfter("Size : ")
 
         val quality = getIndexQuality(fileName)
+        val sourcename = referer
+            ?.takeIf { it.isNotEmpty() && !it.startsWith("http", ignoreCase = true) }
+            ?: ""
 
         document.select("div.text-center a").amap { anchor ->
+
 
             val text = anchor.text()
             val link = anchor.attr("href")
@@ -1896,7 +1900,7 @@ open class GDFlix : ExtractorApi() {
                     callback.invoke(
                         newExtractorLink(
                             "GDFlix [Direct]",
-                            "GDFlix [Direct] [$fileSize]",
+                            "$sourcename GDFlix [Direct] [$fileSize]",
                             link
                         ) { this.quality = quality }
                     )
@@ -1920,7 +1924,7 @@ open class GDFlix : ExtractorApi() {
                                         callback.invoke(
                                             newExtractorLink(
                                                 "GDFlix [Index]",
-                                                "GDFlix [Index] [$fileSize]",
+                                                "$sourcename GDFlix [Index] [$fileSize]",
                                                 sourceurl
                                             ) { this.quality = quality }
                                         )
@@ -1932,26 +1936,20 @@ open class GDFlix : ExtractorApi() {
                     }
                 }
 
-                text.contains("Instant DL", true) -> {
+                text.contains("Instant DL") -> {
                     try {
-
-                        val instantLink = app.get(link, allowRedirects = false)
-                            .headers["location"]
-                            ?.substringAfter("url=")
-                            .orEmpty()
-
+                        val instantLink = app.get(link, allowRedirects = false).headers["location"]?.substringAfter("url=").orEmpty()
                         if (instantLink.isNotEmpty()) {
                             callback.invoke(
                                 newExtractorLink(
                                     "GDFlix [Instant Download]",
-                                    "GDFlix [Instant Download] [$fileSize]",
+                                    "$sourcename GDFlix [Instant Download] [$fileSize]",
                                     instantLink
                                 ) { this.quality = quality }
                             )
                         }
-
                     } catch (e: Exception) {
-                        Log.d("GDFlix Instant", e.toString())
+                        Log.d("Instant DL", e.toString())
                     }
                 }
 
@@ -1972,7 +1970,7 @@ open class GDFlix : ExtractorApi() {
                     callback.invoke(
                         newExtractorLink(
                             "GDFlix [Pixeldrain]",
-                            "GDFlix [Pixeldrain] [$fileSize]",
+                            "$sourcename GDFlix [Pixeldrain] [$fileSize]",
                             finalURL
                         ) { this.quality = quality }
                     )
@@ -1989,7 +1987,7 @@ open class GDFlix : ExtractorApi() {
 
             val types = listOf("type=1", "type=2")
 
-            types.map { type ->
+            types.forEach { type ->
 
                 val sourceurl = app.get("${newUrl.replace("file", "wfile")}?$type")
                     .document
@@ -2000,7 +1998,7 @@ open class GDFlix : ExtractorApi() {
                     callback.invoke(
                         newExtractorLink(
                             "GDFlix [CF]",
-                            "GDFlix [CF] [$fileSize]",
+                            "$sourcename GDFlix [CF] [$fileSize]",
                             sourceurl
                         ) { this.quality = quality }
                     )
@@ -2523,44 +2521,6 @@ class Hubdrive : ExtractorApi() {
     }
 }
 
-class HUBCDN : ExtractorApi() {
-    override val name = "HUBCDN"
-    override val mainUrl = "https://hubcdn.*"
-    override val requiresReferer = false
-
-    override suspend fun getUrl(
-        url: String,
-        referer: String?,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit
-    ) {
-        val doc = app.get(url).document
-        val scriptText = doc.selectFirst("script:containsData(var reurl)")?.data()
-
-        val encodedUrl = Regex("reurl\\s*=\\s*\"([^\"]+)\"")
-            .find(scriptText ?: "")
-            ?.groupValues?.get(1)
-            ?.substringAfter("?r=")
-
-        val decodedUrl = encodedUrl?.let { base64Decode(it) }?.substringAfterLast("link=")
-
-
-        if (decodedUrl != null) {
-            callback(
-                newExtractorLink(
-                    this.name,
-                    this.name,
-                    decodedUrl,
-                    INFER_TYPE,
-                )
-                {
-                    this.quality=Qualities.Unknown.value
-                }
-            )
-        }
-    }
-}
-
 internal class Molop : ExtractorApi() {
     override val name = "Molop"
     override val mainUrl = "https://molop.art"
@@ -2959,7 +2919,7 @@ open class Hblinks : ExtractorApi() {
     }
 }
 
-class Hubcdnn : ExtractorApi() {
+class HUBCDN : ExtractorApi() {
     override val name = "Hubcdn"
     override val mainUrl = "https://hubcdn.*"
     override val requiresReferer = true
@@ -2970,7 +2930,7 @@ class Hubcdnn : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ) {
-        app.get(url).document.toString().let {
+        app.get(url).document.text().let {
             val encoded = Regex("r=([A-Za-z0-9+/=]+)").find(it)?.groups?.get(1)?.value
             if (!encoded.isNullOrEmpty()) {
                 val m3u8 = base64Decode(encoded).substringAfterLast("link=")
@@ -2988,8 +2948,6 @@ class Hubcdnn : ExtractorApi() {
             } else {
                 Log.e("Error", "Encoded URL not found")
             }
-
-
         }
     }
 }
@@ -3254,29 +3212,29 @@ class Filesdl : ExtractorApi() {
 
         val quality = QUALITY_REGEX.find(doc.selectFirst("div.title")?.text().orEmpty())?.value ?: "Unknown"
         val inferredQuality = getQualityFromName(quality)
-        doc.select("div.container a").amap { element ->
+        doc.select("div.container a").forEach { element ->
 
             val source = element.text().trim()
             val href = element.attr("href")
 
             when {
                 source.contains("hubcloud", ignoreCase = true) -> {
-                    HubCloud().getUrl(href, "FilmyCab", subtitleCallback, callback)
+                    HubCloud().getUrl(href, "Filmyfiy", subtitleCallback, callback)
                 }
 
                 source.contains("GDFLIX", ignoreCase = true) -> {
-                    GDFlix().getUrl(href, "FilmyCab", subtitleCallback, callback)
+                    GDFlix().getUrl(href, "Filmyfiy", subtitleCallback, callback)
                 }
 
                 source.contains("Gofile", ignoreCase = true) -> {
-                    Gofile().getUrl(href, "FilmyCab", subtitleCallback, callback)
+                    Gofile().getUrl(href, "Filmyfiy", subtitleCallback, callback)
                 }
 
                 source.contains("Fast Cloud", ignoreCase = true) || source.contains("Ultra Fast Download", ignoreCase = true)-> {
                     callback(
                         newExtractorLink(
-                            source = "[Fast Cloud]",
-                            name = "[Fast Cloud]",
+                            source = "Fast Cloud",
+                            name = "Filmyfiy [Fast Cloud]",
                             url = href,
                             type = INFER_TYPE
                         ) {
@@ -3307,7 +3265,7 @@ class Filesdl : ExtractorApi() {
                         callback(
                             newExtractorLink(
                                 source = "[FastDL] [VLC]",
-                                name = "FilmyCab [FastDL] [VLC]",
+                                name = "Filmyfiy [FastDL] [VLC]",
                                 url = finalUrl,
                                 type = INFER_TYPE
                             ) {
@@ -3316,7 +3274,7 @@ class Filesdl : ExtractorApi() {
                         )
                     } else {
                         loadSourceNameExtractor(
-                            "FilmyCab",
+                            "Filmyfiy",
                             url = finalUrl,
                             referer = "",
                             subtitleCallback = subtitleCallback,

@@ -1,7 +1,6 @@
 package com.AnimeKai
 
 import com.fasterxml.jackson.annotation.JsonProperty
-import com.lagradost.api.Log
 import com.lagradost.cloudstream3.DubStatus
 import com.lagradost.cloudstream3.Episode
 import com.lagradost.cloudstream3.HomePageResponse
@@ -175,12 +174,12 @@ class AnimeKai : MainAPI() {
         val kitsuid = animeMetaData?.mappings?.kitsuid
         val tmdbid = animeMetaData?.mappings?.themoviedbId
 
-        val data = if (aniid != null) {
-            anilistAPICall(
-                "query (\$id: Int = ${aniid}) { Media(id: \$id, type: ANIME) { id title { romaji english } startDate { year } genres description averageScore status bannerImage coverImage { extraLarge large medium } bannerImage episodes format nextAiringEpisode { episode } airingSchedule { nodes { episode } } recommendations { edges { node { id mediaRecommendation { id title { romaji english } coverImage { extraLarge large medium } } } } } } }"
-            ).data.media ?: throw Exception("Unable to fetch media details")
-        } else {
-            null
+        val data = aniid?.let {
+            runCatching {
+                anilistAPICall(
+                    "query (\$id: Int = $aniid) { Media(id: \$id, type: ANIME) { id title { romaji english } startDate { year } genres description averageScore status bannerImage coverImage { extraLarge large medium } bannerImage episodes format nextAiringEpisode { episode } airingSchedule { nodes { episode } } recommendations { edges { node { id mediaRecommendation { id title { romaji english } coverImage { extraLarge large medium } } } } } } }"
+                ).data.media
+            }.getOrNull()
         }
 
         val typeraw = document.select("div.entity-scroll div.info").text()
@@ -255,6 +254,57 @@ class AnimeKai : MainAPI() {
                     dubEpisodes += createEpisode("dub", ep)
                 }
             }
+        }
+
+
+        //Uncensored Episodes
+
+        var ucOffset = subEpisodes.size
+
+        epRes?.select("div.eplist a")?.forEach { ep ->
+
+            val slug = ep.attr("slug")
+            val titleText = ep.text()
+
+            val isUC = slug.contains("uncen", true) ||
+                    titleText.contains("uncensored", true) ||
+                    titleText.contains("(UC)", true)
+            if (!isUC) return@forEach
+
+            val originalEpNum = ep.attr("num").toIntOrNull() ?: return@forEach
+            val newEpisodeNum = ++ucOffset   // continue numbering
+
+            val episodeKey = originalEpNum.toString()
+
+            fun resolveTitle(ep: Element, episodeKey: String): String {
+                val titleMap = animeMetaData?.episodes?.get(episodeKey)?.title
+                val jsonTitle = titleMap?.get("en")
+                    ?: titleMap?.get("ja")
+                    ?: titleMap?.get("x-jat")
+                    ?: animeMetaData?.titles?.get("en")
+                    ?: animeMetaData?.titles?.get("ja")
+                    ?: animeMetaData?.titles?.get("x-jat")
+                    ?: ""
+
+                val attrTitle = ep.selectFirst("span")?.text() ?: ep.attr("title")
+                return jsonTitle.ifBlank { attrTitle }
+            }
+
+            val metaEp = animeMetaData?.episodes?.get(episodeKey)
+
+            val episode = newEpisode("sub|${ep.attr("token")}") {
+                val base = resolveTitle(ep, episodeKey)
+
+                this.name = "$base (UC)"
+                this.episode = newEpisodeNum   // shifted number
+                this.score = Score.from10(metaEp?.rating)
+                this.posterUrl = metaEp?.image ?: animeMetaData?.images?.firstOrNull()?.url ?: ""
+                this.description = metaEp?.overview ?: "No summary available"
+                this.addDate(metaEp?.airdate)
+                this.runTime = metaEp?.runtime
+            }
+
+            subEpisodes += episode
         }
 
         val recommendations = document.select("div.aitem-col a").map { it.toRecommendResult() }

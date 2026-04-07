@@ -70,6 +70,7 @@ import java.net.URLDecoder
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
+import java.security.SecureRandom
 import java.util.Locale
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
@@ -77,6 +78,7 @@ import javax.crypto.spec.SecretKeySpec
 import kotlin.collections.mapOf
 import kotlin.collections.orEmpty
 import kotlin.math.max
+import kotlin.text.isNullOrBlank
 
 
 val session = Session(Requests().baseClient)
@@ -1167,20 +1169,18 @@ object StreamPlayExtractor : StreamPlay() {
         val isMovie = dubtype == "Movie"
         val headers = mapOf("Cookie" to "__ddg2_=1234567890")
 
-        val id = safeGet("https://animepaheproxy.phisheranimepahe.workers.dev/?url=$url", headers)
+        val id = safeGet("https://animepaheproxy.phisheranimepahe.workers.dev/?url=${url.replace(".si",".org")}", headers)
             .document.selectFirst("meta[property=og:url]")
             ?.attr("content").toString().substringAfterLast("/")
 
         val animeData = safeGet(
-            "https://animepaheproxy.phisheranimepahe.workers.dev/?url=$animepaheAPI/api?m=release&id=$id&sort=episode_desc&page=1",
+            "https://animepaheproxy.phisheranimepahe.workers.dev/?url=$animepaheAPI/api?m=release&id=$id&sort=episode_asc&page=1",
             headers
         ).parsedSafe<animepahe>()?.data.orEmpty()
 
-        val reversedData = animeData.reversed()
-
         val targetIndex = (episode ?: 1) - 1
-        if (targetIndex !in reversedData.indices) return
-        val session = reversedData[targetIndex].session
+        if (targetIndex !in animeData.indices) return
+        val session = animeData[targetIndex].session
 
         val document = safeGet(
             "https://animepaheproxy.phisheranimepahe.workers.dev/?url=$animepaheAPI/play/$id/$session",
@@ -2732,18 +2732,19 @@ object StreamPlayExtractor : StreamPlay() {
                         safeGet(page, referer = api, headers = headers).document
                     }.getOrNull() ?: return@amap
 
-                    val source = doc.selectFirst("button.btn:matches((?i)(V-Cloud|G-Direct))")
-                        ?.parent()
-                        ?.attr("href")
-                        ?: return@amap
+                    val sources = doc.select("button.btn:matches((?i)(V-Cloud|G-Direct))")
+                        .mapNotNull { it.parent()?.attr("href") }
+                        .filter { it.isNotBlank() }
 
-                    loadSourceNameExtractor(
-                        "VegaMovies",
-                        source,
-                        "",
-                        subtitleCallback,
-                        callback
-                    )
+                    sources.forEach { source ->
+                        loadSourceNameExtractor(
+                            "VegaMovies",
+                            source,
+                            "",
+                            subtitleCallback,
+                            callback
+                        )
+                    }
                 }
             return
         }
@@ -2774,18 +2775,21 @@ object StreamPlayExtractor : StreamPlay() {
                     .firstOrNull { it.text().contains(episodeText, true) }
                     ?: return@amap
 
-                val link = epNode.nextElementSibling()
-                    ?.selectFirst("a:matches((?i)(V-Cloud|Single|Episode|G-Direct))")
-                    ?.attr("href")
-                    ?: return@amap
+                val links = epNode.nextElementSibling()
+                    ?.select("a:matches((?i)(V-Cloud|Single|Episode|G-Direct))")
+                    ?.map { it.attr("href") }
+                    ?.filter { it.isNotBlank() }
+                    ?: emptyList()
 
-                loadSourceNameExtractor(
-                    "VegaMovies",
-                    link,
-                    "",
-                    subtitleCallback,
-                    callback
-                )
+                links.forEach { link ->
+                    loadSourceNameExtractor(
+                        "VegaMovies",
+                        link,
+                        "",
+                        subtitleCallback,
+                        callback
+                    )
+                }
             }
     }
 
@@ -2847,12 +2851,18 @@ object StreamPlayExtractor : StreamPlay() {
                         safeGet(page, referer = api, headers = headers).document
                     }.getOrNull() ?: return@amap
 
-                    val source = doc.selectFirst("button.btn:matches((?i)(V-Cloud|G-Direct))")
-                        ?.parent()
-                        ?.attr("href")
-                        ?: return@amap
-
-                    loadSourceNameExtractor("RogMovies", source, "", subtitleCallback, callback)
+                    val sources = doc.select("button.btn:matches((?i)(V-Cloud|G-Direct))")
+                        .mapNotNull { it.parent()?.attr("href") }
+                        .filter { it.isNotBlank() }
+                    sources.forEach { source ->
+                        loadSourceNameExtractor(
+                            "RogMovies",
+                            source,
+                            "",
+                            subtitleCallback,
+                            callback
+                        )
+                    }
                 }
             return
         }
@@ -2883,13 +2893,22 @@ object StreamPlayExtractor : StreamPlay() {
                     .firstOrNull { it.text().contains(episodeText, true) }
                     ?: return@amap
 
-                val link = epNode.nextElementSibling()
-                    ?.selectFirst("a:matches((?i)(V-Cloud|Single|Episode|G-Direct))")
-                    ?.attr("href")
-                    ?: return@amap
+                val links = epNode.nextElementSibling()
+                    ?.select("a:matches((?i)(V-Cloud|Single|Episode|G-Direct))")
+                    ?.map { it.attr("href") }
+                    ?.filter { it.isNotBlank() }
+                    ?: emptyList()
 
-                loadSourceNameExtractor("RogMovies", link, "", subtitleCallback, callback)
-            }
+                links.forEach { link ->
+                    loadSourceNameExtractor(
+                        "RogMovies",
+                        link,
+                        "",
+                        subtitleCallback,
+                        callback
+                    )
+                }
+        }
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
@@ -4498,6 +4517,15 @@ object StreamPlayExtractor : StreamPlay() {
         }
     }
 
+    private val random = SecureRandom()
+
+    fun generateDeviceId(): String {
+        val bytes = ByteArray(16)
+        random.nextBytes(bytes)
+        return bytes.joinToString("") { "%02x".format(it) }
+    }
+
+    val deviceId = generateDeviceId()
     suspend fun invokeMovieBox(
         title: String?,
         season: Int? = 0,
@@ -4515,12 +4543,12 @@ object StreamPlayExtractor : StreamPlay() {
                 "POST", "application/json", "application/json; charset=utf-8", url, jsonBody
             )
             val headers = mapOf(
-                "user-agent" to "com.community.mbox.in/50020042 (Linux; Android 16)",
+                "user-agent" to "com.community.oneroom/50020088 (Linux; U; Android 13; en_US; Subsystem for Android(TM); Build/TQ3A.230901.001; Cronet/145.0.7582.0)",
                 "accept" to "application/json",
                 "content-type" to "application/json",
                 "x-client-token" to xClientToken,
                 "x-tr-signature" to xTrSignature,
-                "x-client-info" to """{"package_name":"com.community.mbox.in","version_name":"3.0.03.0529.03","version_code":50020042,"os":"android","os_version":"16","device_id":"da2b99c821e6ea023e4be55b54d5f7d8","install_store":"ps","gaid":"d7578036d13336cc","brand":"google","model":"sdk_gphone64_x86_64","system_language":"en","net":"NETWORK_WIFI","sp_code":""}""",
+                "x-client-info" to """{"package_name":"com.community.oneroom","version_name":"3.0.13.0325.03","version_code":50020088,"os":"android","os_version":"13","install_ch":"ps","device_id":"$deviceId","install_store":"ps","gaid":"1b2212c1-dadf-43c3-a0c8-bd6ce48ae22d","brand":"Windows","model":"Subsystem for Android(TM)","system_language":"en","net":"NETWORK_WIFI","region":"US","timezone":"Asia/Calcutta","sp_code":"","X-Play-Mode":"1","X-Idle-Data":"1","X-Family-Mode":"0","X-Content-Mode":"0"}""".trimIndent(),
                 "x-client-status" to "0"
             )
 
@@ -4529,7 +4557,7 @@ object StreamPlayExtractor : StreamPlay() {
             if (response.code != 200) return false
 
             val mapper = streamPlayExtractorMapper
-            val root = mapper.readTree(response.body.string())
+            val root = mapper.readTree(response.text)
             val results = root["data"]?.get("results") ?: return false
 
             val matchingIds = mutableListOf<String>()
@@ -4563,9 +4591,19 @@ object StreamPlayExtractor : StreamPlay() {
                         "x-tr-signature" to subjectXSign
                     )
                     val subjectRes = safeGet(subjectUrl, headers = subjectHeaders)
+
+                    val xUserHeader = subjectRes.headers["x-user"]
+
+                    var authtoken: String? = null
+
+                    if (!xUserHeader.isNullOrBlank()) {
+                        val xUserJson = mapper.readTree(xUserHeader)
+                        authtoken = xUserJson["token"]?.asText()
+                    }
+
                     if (subjectRes.code != 200) return@amap
 
-                    val subjectJson = mapper.readTree(subjectRes.body.string())
+                    val subjectJson = mapper.readTree(subjectRes.text)
                     val subjectData = subjectJson["data"]
                     val subjectIds = mutableListOf<Pair<String, String>>()
                     var originalLanguageName = "Original"
@@ -4597,13 +4635,12 @@ object StreamPlayExtractor : StreamPlay() {
                             "application/json",
                             playUrl
                         )
-                        val playHeaders =
-                            headers + mapOf("x-client-token" to token, "x-tr-signature" to sign)
+                        val playHeaders = headers + mapOf("x-client-token" to token, "x-tr-signature" to sign)
 
                         val playRes = safeGet(playUrl, headers = playHeaders)
                         if (playRes.code != 200) continue
 
-                        val playRoot = mapper.readTree(playRes.body.string())
+                        val playRoot = mapper.readTree(playRes.text)
                         val streams = playRoot["data"]?.get("streams") ?: continue
                         if (!streams.isArray) continue
 
@@ -4728,7 +4765,7 @@ object StreamPlayExtractor : StreamPlay() {
                                 val subRes = safeGet(subLink, headers = subHeaders)
                                 if (subRes.code != 200) continue
 
-                                val subRoot = mapper.readTree(subRes.body.string())
+                                val subRoot = mapper.readTree(subRes.text)
                                 val captions = subRoot["data"]?.get("extCaptions")
                                 if (captions != null && captions.isArray) {
                                     for (caption in captions) {
@@ -5058,7 +5095,7 @@ object StreamPlayExtractor : StreamPlay() {
         )
 
         val iframe = safeGet(url, interceptor = apifetch).url
-        val jsonString = safeGet(iframe).body.string()
+        val jsonString = safeGet(iframe).text
 
         val root: Vidlink = streamPlayExtractorMapper.readValue(jsonString)
         val playlistParts = root.stream.playlist.split("?")
@@ -5217,7 +5254,7 @@ object StreamPlayExtractor : StreamPlay() {
             url = "$mp4hydra/info2?v=8",
             headers = headers,
             requestBody = requestBody
-        ).body.string()
+        ).text
 
         val json = JSONObject(responseBody)
         val servers = json.optJSONObject("servers") ?: JSONObject()
@@ -6680,11 +6717,21 @@ object StreamPlayExtractor : StreamPlay() {
             }
     }
 
+
     suspend fun invokeFilmyfiy(
         title: String?,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit,
     ) {
+
+        fun cleanTitle(input: String): String {
+            return input
+                .lowercase()
+                .replace(Regex("\\(.*?\\)"), "") // remove (2012), (Hindi...)
+                .replace(Regex("[^a-z0-9 ]"), " ")
+                .replace(Regex("\\s+"), " ")
+                .trim()
+        }
         val baseUrl = getDomains()?.filmyfiy ?: return
         val rawQuery = title?.trim() ?: return
         val query = rawQuery.lowercase().replace(Regex("[^a-z0-9]"), "")
@@ -6698,11 +6745,21 @@ object StreamPlayExtractor : StreamPlay() {
                 }
             }"
         ).document
+
+        val queryClean = cleanTitle(rawQuery)
+
         searchDoc.select("div.A2 > a:nth-child(2)[href]").mapNotNull { a ->
             val href = a.attr("href").takeIf(String::isNotBlank)
-                ?.let { if (it.startsWith("http")) it else baseUrl + it } ?: return@mapNotNull null
-            val text = a.text().lowercase().replace(Regex("[^a-z0-9]"), "")
-            if (text.contains(query)) href else null
+                ?.let { if (it.startsWith("http")) it else baseUrl + it }
+                ?: return@mapNotNull null
+
+            val titleText = cleanTitle(a.text())
+
+            val isMatch = titleText == queryClean ||
+                    titleText.startsWith("$queryClean ") ||
+                    titleText.contains(" $queryClean ")
+
+            if (isMatch) href else null
         }.distinct().amap { postUrl ->
             val postDoc = safeGet(postUrl).document
             postDoc.select("div.dlbtn a[href]")
